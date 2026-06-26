@@ -1,0 +1,34 @@
+# NovelAgent RP 模式配置示例（per-workspace）。
+# 复制本文件为 workspaces/<story>/rp.yaml 并按需修改。缺失文件 = 默认沉浸模式 + GM 侧行为。
+#
+# 字段全部可选；非法值一律降级到默认，绝不中断回合。
+
+# RP 模式：immersive（叙述推进，GM 不直接回应玩家）| trpg（跑团，GM 判定行动并触发掷骰）。
+# 默认 immersive。未知值降级为 immersive。
+mode: immersive
+
+# 骰子 / 判定规则。
+dice:
+  # 掷骰来源：gm（GM 侧行动，同回合内掷骰并折进叙述）| player（要求玩家掷，返回 pending 等待）。
+  # 默认 gm。未知值降级为 gm。
+  source: gm
+  # 触发判定的 intent 列表（trpg 模式下，玩家输入被解析为这些 intent 时才掷骰）。
+  # 可选 intent：attack / act / move / inspect / dialogue / unknown。默认空（不判定）。
+  prompt_on: []
+  # 骰子表达式，如 1d20 / 3d6+2 / 1d100。默认 1d20。
+  notation: 1d20
+  # 随机种子（整数）：提供则结果可复现；留空则非确定。默认 null。
+  seed: null
+
+# GM 人格与运行方式。
+gm:
+  # 折进 gm_narration 前缀的人格标签，如「地下城主」「中立裁判」。默认空。
+  persona: ""
+  # GM 运行方式：mock（确定性模板，零 LLM）| llm（真实模型，当前未实现，会抛 NotImplementedError）。
+  # 默认 mock。绝不默认联网。
+  runner: mock
+
+# 中间态可见性（RP-A4 配套）。
+visibility:
+  # 是否默认显示解析出的 intent/target 等中间态标签。默认 false（对玩家隐藏）。
+  debug_default: false

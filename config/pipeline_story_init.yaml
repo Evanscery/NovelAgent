@@ -1,0 +1,15 @@
+steps:
+  - id: bootstrap_theme
+    agent: theme_bootstrapper
+
+  - id: design_cast
+    agent: cast_designer
+
+  - id: build_worldbook
+    agent: worldbook_builder
+
+  - id: plan_initial_arc
+    agent: arc_planner
+
+  - id: init_state
+    agent: state_initializer

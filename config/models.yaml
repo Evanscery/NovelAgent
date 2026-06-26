@@ -1,0 +1,37 @@
+tiers:
+  premium:
+    provider: "openai_compatible"
+    model_env: "MODEL_HIGH"
+    rpm: 3
+
+  standard:
+    provider: "openai_compatible"
+    model_env: "MODEL_FAST"
+    rpm: 10
+
+  cheap:
+    provider: "openai_compatible"
+    model_env: "MODEL_FAST"
+    rpm: 10
+
+agents:
+  run_snapshotter: cheap
+  recaller: standard
+  scene_planner: premium
+  outline_worldbook_guard: standard
+  outline_knowledge_guard: standard
+  outline_integrator: premium
+  prose_writer: premium
+  character_guard: standard
+  continuity_guard: standard
+  style_detail_guard: standard
+  prose_reviser: premium
+  state_manifest_keeper: premium
+  memory_archivist: cheap
+  theme_bootstrapper: premium
+  cast_designer: premium
+  worldbook_builder: premium
+  arc_planner: premium
+  state_initializer: premium
+  chapter_evaluator: premium
+  book_evaluator: premium

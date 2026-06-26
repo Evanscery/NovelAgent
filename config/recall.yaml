@@ -1,0 +1,9 @@
+db_path: data/recall.db
+
+sources:
+  - novel_project/memory/summaries.md
+  - novel_project/memory/index.md
+  - novel_project/memory/fulltext
+
+top_k: 8
+snippet_chars: 800

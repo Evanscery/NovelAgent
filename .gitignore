@@ -1,0 +1,37 @@
+# ── 凭据 / 本地环境 ──
+.env
+.env.local
+.env.*.local
+
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.pytest_cache/
+
+# ── 编辑器 / 工具产物 ──
+.claude/
+.codegraph/
+.playwright-mcp/
+
+# ── 全局数据（SQLite Recall、prompt cache） ──
+data/
+!data/.gitkeep
+
+# ── 前端构建产物与依赖 ──
+web/node_modules/
+web/dist/
+web/.vite/
+
+# ── 工作区：每个故事为本地运行产物，不入库 ──
+# 仅保留 workspaces/ 根下的模板文件（rp.yaml.example）与 .gitkeep。
+workspaces/*/
+!workspaces/.gitkeep
+
+# 遗留兼容路径（旧 novel_project/work），同样忽略运行产物
+novel_project/work/
+!novel_project/work/.gitkeep
+!novel_project/work/reports/
+novel_project/work/reports/*
+!novel_project/work/reports/.gitkeep

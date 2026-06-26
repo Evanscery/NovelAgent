@@ -1,0 +1,354 @@
+agents:
+  run_snapshotter:
+    profile: system.snapshot
+    prompt: novel_project/prompts/run_snapshotter.md
+    preset: novel_project/presets/default.yaml
+    runner: local_snapshot
+    output: novel_project/work/run_snapshot.md
+    artifacts:
+      - id: run_snapshot
+        path: novel_project/work/run_snapshot.md
+        kind: snapshot
+        required: true
+    inputs:
+      - novel_project/work/player_input.md
+      - novel_project/state/state.md
+      - novel_project/state/player_visible.md
+      - novel_project/outline/current_arc.md
+      - novel_project/memory/index.md
+
+  recaller:
+    profile: recall.basic
+    prompt: novel_project/prompts/recaller.md
+    preset: novel_project/presets/default.yaml
+    runner: local_recall
+    output: novel_project/work/recall_report.md
+    artifacts:
+      - id: recall_report
+        path: novel_project/work/recall_report.md
+        kind: report
+        required: true
+    inputs:
+      - novel_project/work/run_snapshot.md
+      - novel_project/memory/index.md
+      - novel_project/memory/summaries.md
+
+  theme_bootstrapper:
+    profile: bootstrap.theme
+    prompt: novel_project/prompts/theme_bootstrapper.md
+    preset: novel_project/presets/default.yaml
+    runner: direct
+    output: novel_project/lore/premise.md
+    artifacts:
+      - id: premise
+        path: novel_project/lore/premise.md
+        kind: lore
+        required: true
+    inputs:
+      - novel_project/PROJECT.md
+      - novel_project/work/player_input.md
+      - novel_project/lore/premise.md
+
+  cast_designer:
+    profile: bootstrap.cast
+    prompt: novel_project/prompts/cast_designer.md
+    preset: novel_project/presets/default.yaml
+    runner: direct
+    output: novel_project/lore/characters.md
+    artifacts:
+      - id: characters
+        path: novel_project/lore/characters.md
+        kind: lore
+        required: true
+    inputs:
+      - novel_project/lore/premise.md
+      - novel_project/lore/characters.md
+
+  worldbook_builder:
+    profile: bootstrap.worldbook
+    prompt: novel_project/prompts/worldbook_builder.md
+    preset: novel_project/presets/default.yaml
+    runner: direct
+    output: novel_project/lore/worldbook.md
+    artifacts:
+      - id: worldbook
+        path: novel_project/lore/worldbook.md
+        kind: lore
+        required: true
+      - id: locations
+        path: novel_project/lore/locations.md
+        kind: lore
+        required: true
+    inputs:
+      - novel_project/lore/premise.md
+      - novel_project/lore/characters.md
+      - novel_project/lore/worldbook.md
+      - novel_project/lore/locations.md
+
+  arc_planner:
+    profile: bootstrap.arc
+    prompt: novel_project/prompts/arc_planner.md
+    preset: novel_project/presets/default.yaml
+    runner: direct
+    output: novel_project/outline/current_arc.md
+    artifacts:
+      - id: master_outline
+        path: novel_project/outline/master_outline.md
+        kind: outline
+        required: true
+      - id: current_arc
+        path: novel_project/outline/current_arc.md
+        kind: outline
+        required: true
+    inputs:
+      - novel_project/lore/premise.md
+      - novel_project/lore/worldbook.md
+      - novel_project/lore/characters.md
+      - novel_project/outline/master_outline.md
+      - novel_project/outline/current_arc.md
+
+  state_initializer:
+    profile: bootstrap.state
+    prompt: novel_project/prompts/state_initializer.md
+    preset: novel_project/presets/default.yaml
+    runner: direct
+    output: novel_project/state/state.md
+    artifacts:
+      - id: state_main
+        path: novel_project/state/state.md
+        kind: state
+        required: true
+      - id: player_visible
+        path: novel_project/state/player_visible.md
+        kind: state
+        required: true
+    inputs:
+      - novel_project/lore/premise.md
+      - novel_project/lore/characters.md
+      - novel_project/outline/current_arc.md
+      - novel_project/state/state.md
+      - novel_project/state/player_visible.md
+
+  scene_planner:
+    profile: planner.scene
+    prompt: novel_project/prompts/scene_planner.md
+    preset: novel_project/presets/default.yaml
+    runner: direct
+    output: novel_project/work/rough_outline.md
+    artifacts:
+      - id: rough_outline
+        path: novel_project/work/rough_outline.md
+        kind: outline
+        required: true
+    inputs:
+      - novel_project/work/run_snapshot.md
+      - novel_project/work/recall_report.md
+      - novel_project/lore/premise.md
+      - novel_project/lore/worldbook.md
+      - novel_project/lore/characters.md
+      - novel_project/lore/locations.md
+      - novel_project/lore/style.md
+      - novel_project/outline/master_outline.md
+      - novel_project/outline/current_arc.md
+
+  outline_worldbook_guard:
+    profile: critic.worldbook
+    prompt: novel_project/prompts/outline_worldbook_guard.md
+    preset: novel_project/presets/default.yaml
+    runner: direct
+    output: novel_project/work/reports/outline_worldbook.md
+    artifacts:
+      - id: outline_worldbook_report
+        path: novel_project/work/reports/outline_worldbook.md
+        kind: critic_report
+        required: true
+    inputs:
+      - novel_project/lore/worldbook.md
+      - novel_project/lore/locations.md
+      - novel_project/work/run_snapshot.md
+      - novel_project/work/rough_outline.md
+
+  outline_knowledge_guard:
+    profile: critic.knowledge
+    prompt: novel_project/prompts/outline_knowledge_guard.md
+    preset: novel_project/presets/default.yaml
+    runner: direct
+    output: novel_project/work/reports/outline_knowledge.md
+    artifacts:
+      - id: outline_knowledge_report
+        path: novel_project/work/reports/outline_knowledge.md
+        kind: critic_report
+        required: true
+    inputs:
+      - novel_project/lore/characters.md
+      - novel_project/work/run_snapshot.md
+      - novel_project/work/rough_outline.md
+
+  outline_integrator:
+    profile: planner.integrator
+    prompt: novel_project/prompts/outline_integrator.md
+    preset: novel_project/presets/default.yaml
+    runner: direct
+    output: novel_project/work/outline_final.md
+    artifacts:
+      - id: final_outline
+        path: novel_project/work/outline_final.md
+        kind: outline
+        required: true
+    inputs:
+      - novel_project/work/run_snapshot.md
+      - novel_project/work/rough_outline.md
+      - novel_project/work/reports/outline_worldbook.md
+      - novel_project/work/reports/outline_knowledge.md
+      - novel_project/lore/worldbook.md
+      - novel_project/lore/characters.md
+
+  prose_writer:
+    profile: writer.prose
+    prompt: novel_project/prompts/prose_writer.md
+    preset: novel_project/presets/default.yaml
+    runner: direct
+    output: novel_project/work/draft.md
+    artifacts:
+      - id: draft_prose
+        path: novel_project/work/draft.md
+        kind: prose
+        required: true
+    inputs:
+      - novel_project/work/run_snapshot.md
+      - novel_project/work/outline_final.md
+      - novel_project/lore/characters.md
+      - novel_project/lore/style.md
+
+  character_guard:
+    profile: critic.character
+    prompt: novel_project/prompts/character_guard.md
+    preset: novel_project/presets/default.yaml
+    runner: direct
+    output: novel_project/work/reports/draft_character.md
+    artifacts:
+      - id: draft_character_report
+        path: novel_project/work/reports/draft_character.md
+        kind: critic_report
+        required: true
+    inputs:
+      - novel_project/lore/characters.md
+      - novel_project/work/run_snapshot.md
+      - novel_project/work/outline_final.md
+      - novel_project/work/draft.md
+
+  continuity_guard:
+    profile: critic.continuity
+    prompt: novel_project/prompts/continuity_guard.md
+    preset: novel_project/presets/default.yaml
+    runner: direct
+    output: novel_project/work/reports/draft_logic.md
+    artifacts:
+      - id: draft_logic_report
+        path: novel_project/work/reports/draft_logic.md
+        kind: critic_report
+        required: true
+    inputs:
+      - novel_project/lore/worldbook.md
+      - novel_project/work/run_snapshot.md
+      - novel_project/memory/index.md
+      - novel_project/work/outline_final.md
+      - novel_project/work/draft.md
+
+  style_detail_guard:
+    profile: critic.style_detail
+    prompt: novel_project/prompts/style_detail_guard.md
+    preset: novel_project/presets/default.yaml
+    runner: direct
+    output: novel_project/work/reports/draft_style_detail.md
+    artifacts:
+      - id: draft_style_detail_report
+        path: novel_project/work/reports/draft_style_detail.md
+        kind: critic_report
+        required: true
+    inputs:
+      - novel_project/lore/style.md
+      - novel_project/work/outline_final.md
+      - novel_project/work/draft.md
+
+  prose_reviser:
+    profile: writer.reviser
+    prompt: novel_project/prompts/prose_reviser.md
+    preset: novel_project/presets/default.yaml
+    runner: direct
+    output: novel_project/work/final.md
+    artifacts:
+      - id: final_prose
+        path: novel_project/work/final.md
+        kind: prose
+        required: true
+    inputs:
+      - novel_project/lore/style.md
+      - novel_project/work/outline_final.md
+      - novel_project/work/draft.md
+      - novel_project/work/reports/draft_character.md
+      - novel_project/work/reports/draft_logic.md
+      - novel_project/work/reports/draft_style_detail.md
+
+  state_manifest_keeper:
+    profile: state.keeper
+    prompt: novel_project/prompts/state_manifest_keeper.md
+    preset: novel_project/presets/default.yaml
+    runner: direct
+    output: novel_project/state/state.md
+    artifacts:
+      - id: state_main
+        path: novel_project/state/state.md
+        kind: state
+        required: true
+      - id: player_visible
+        path: novel_project/state/player_visible.md
+        kind: state
+        required: true
+    inputs:
+      - novel_project/state/state.md
+      - novel_project/state/player_visible.md
+      - novel_project/work/outline_final.md
+      - novel_project/work/final.md
+
+  memory_archivist:
+    profile: archive.memory
+    prompt: novel_project/prompts/memory_archivist.md
+    preset: novel_project/presets/default.yaml
+    runner: local_archive
+    output: novel_project/archive
+    artifacts:
+      - id: archive_scene
+        path: novel_project/archive
+        kind: archive
+        required: true
+    inputs:
+      - novel_project/state/state.md
+      - novel_project/work/run_snapshot.md
+      - novel_project/work/outline_final.md
+      - novel_project/work/final.md
+
+  book_evaluator:
+    profile: evaluate.book
+    prompt: novel_project/prompts/book_evaluator.md
+    preset: novel_project/presets/default.yaml
+    runner: direct
+    output: novel_project/evaluation/final_report.md
+    artifacts:
+      - id: evaluation_report
+        path: novel_project/evaluation/final_report.md
+        kind: report
+        required: true
+    inputs:
+      - novel_project/lore/premise.md
+      - novel_project/lore/worldbook.md
+      - novel_project/lore/characters.md
+      - novel_project/memory/summaries.md
+      - novel_project/memory/index.md
+
+  # G2：GM 是 RP 运行时角色，可挂载确定性技能（如掷骰）。
+  # skills 列表声明该 agent 被授予的内置技能；MCP 外部技能为未来通道。
+  gm:
+    profile: runtime.gm
+    skills:
+      - dice_roll

@@ -1,0 +1,19 @@
+# NovelAgent 一键启动配置（G4）
+# `python -m app.main serve` 读取本文件，按配置拉起后端 API + 前端 Web。
+server:
+  # 监听地址：默认仅本地。对外暴露需显式改为 0.0.0.0 并配置白名单。
+  host: 127.0.0.1
+  port: 8766
+
+  # 启动后是否自动打开浏览器（双击 start.bat / start.sh 时跳转到前端页面）。
+  open_browser: true
+
+  # CORS 允许的来源；留空表示不加 CORS 头。可填具体来源或 "*"。
+  allow_origins: []
+
+  # IP 白名单；留空表示不额外限制（仍受 host 绑定约束）。
+  # 对外暴露时强烈建议显式填写允许的客户端 IP。
+  ip_whitelist: []
+
+  # 可选：静态资源目录（相对项目根）。留空则使用内置最小前端页面。
+  static_dir: null

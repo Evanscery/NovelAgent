@@ -1,0 +1,3 @@
+steps:
+  - id: review_outline_worldbook
+    agent: outline_worldbook_guard

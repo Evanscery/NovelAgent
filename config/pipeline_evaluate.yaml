@@ -1,0 +1,3 @@
+steps:
+  - id: evaluate_book
+    agent: book_evaluator

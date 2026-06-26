@@ -1,0 +1,99 @@
+/* NovelAgent 设计令牌 —— 样式的唯一真相源。
+   组件禁止硬编码颜色/间距/字号/圆角，一律引用这里的变量。
+   见 docs/frontend_design_system.md。 */
+
+:root,
+:root[data-theme='dark'] {
+  /* 颜色（暗色为默认） */
+  --bg: #0f1115;
+  --surface: #161922;
+  --surface-2: #1d2230;
+  --surface-3: #242b3d;
+  --border: #2a3040;
+  --border-strong: #3a4256;
+  --text: #e6e9ef;
+  --text-muted: #9aa3b2;
+  --text-faint: #6b7384;
+  --primary: #6c8cff;
+  --primary-hover: #809cff;
+  --primary-contrast: #ffffff;
+  --success: #4caf78;
+  --warning: #e0a13c;
+  --danger: #e5615e;
+  --danger-hover: #ef7370;
+  --accent-rp: #b58bff;
+  --overlay: rgba(6, 8, 12, 0.62);
+}
+
+:root[data-theme='light'] {
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #eef1f5;
+  --surface-3: #e4e8ef;
+  --border: #dce0e8;
+  --border-strong: #c2c8d4;
+  --text: #1a1d23;
+  --text-muted: #5b6472;
+  --text-faint: #8b93a3;
+  --primary: #3b5bdb;
+  --primary-hover: #2f4bc4;
+  --primary-contrast: #ffffff;
+  --success: #2e9e63;
+  --warning: #c47f1a;
+  --danger: #d63a37;
+  --danger-hover: #c22f2c;
+  --accent-rp: #8b5cf6;
+  --overlay: rgba(20, 24, 33, 0.38);
+}
+
+:root {
+  /* 字体 */
+  --font-sans: 'Inter', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 26px;
+  --lh-tight: 1.3;
+  --lh-normal: 1.6;
+
+  /* 间距（8px 基线 + 4px 半档） */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-8: 48px;
+
+  /* 圆角 / 阴影 / 动效 */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
+  --shadow-pop: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 120ms;
+  --dur-mid: 200ms;
+  --dur-slow: 320ms;
+
+  /* 层级 */
+  --z-base: 0;
+  --z-sticky: 100;
+  --z-drawer: 200;
+  --z-modal: 300;
+  --z-toast: 400;
+  --z-drag: 500;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

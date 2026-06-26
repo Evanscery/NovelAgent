@@ -1,0 +1,41 @@
+runner:
+  timeout_seconds: 600
+  max_retries: 3
+  backoff_seconds:
+    - 4
+    - 8
+    - 12
+
+recovery:
+  allow_guard_degrade: true
+  allow_writer_fallback: true
+  fallback_tier: standard
+
+resume:
+  enabled: true
+  journal_dir: work/run_journal
+  checkpoint_dir: work/checkpoints
+
+cache:
+  enabled: true
+  prompt_cache_dir: data/prompt_cache
+
+context:
+  prompt_snapshot_dir: work/prompt_snapshots
+  write_trace: true
+  default_max_chars: 12000
+  agent_max_chars:
+    prose_writer: 9000
+    prose_reviser: 10000
+    scene_planner: 11000
+    outline_integrator: 10000
+    continuity_guard: 9500
+  section_strategies:
+    prompt: keep
+    module: keep
+    artifacts: keep
+    context: truncate
+    task: keep
+    retrieved: compress
+    stable: compress
+    memory: compress

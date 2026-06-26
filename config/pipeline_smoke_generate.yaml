@@ -1,0 +1,9 @@
+steps:
+  - id: freeze_run_input
+    agent: run_snapshotter
+
+  - id: recall
+    agent: recaller
+
+  - id: plan_scene
+    agent: scene_planner

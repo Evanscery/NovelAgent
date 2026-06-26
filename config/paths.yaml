@@ -1,0 +1,24 @@
+project_root: novel_project
+
+state:
+  main: novel_project/state/state.md
+  player_visible: novel_project/state/player_visible.md
+
+memory:
+  summaries: novel_project/memory/summaries.md
+  index: novel_project/memory/index.md
+  fulltext_dir: novel_project/memory/fulltext
+
+work:
+  dir: novel_project/work
+  reports_dir: novel_project/work/reports
+  player_input: novel_project/work/player_input.md
+  run_snapshot: novel_project/work/run_snapshot.md
+  recall_report: novel_project/work/recall_report.md
+  rough_outline: novel_project/work/rough_outline.md
+  outline_final: novel_project/work/outline_final.md
+  draft: novel_project/work/draft.md
+  final: novel_project/work/final.md
+
+archive:
+  dir: novel_project/archive

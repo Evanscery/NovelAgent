@@ -1,0 +1,39 @@
+steps:
+  - id: freeze_run_input
+    agent: run_snapshotter
+
+  - id: recall
+    agent: recaller
+
+  - id: plan_scene
+    agent: scene_planner
+
+  - id: review_outline_worldbook
+    agent: outline_worldbook_guard
+
+  - id: review_outline_knowledge
+    agent: outline_knowledge_guard
+
+  - id: revise_outline
+    agent: outline_integrator
+
+  - id: draft_prose
+    agent: prose_writer
+
+  - id: review_character
+    agent: character_guard
+
+  - id: review_continuity
+    agent: continuity_guard
+
+  - id: review_style_detail
+    agent: style_detail_guard
+
+  - id: revise_prose
+    agent: prose_reviser
+
+  - id: update_state_manifest
+    agent: state_manifest_keeper
+
+  - id: archive_memory
+    agent: memory_archivist

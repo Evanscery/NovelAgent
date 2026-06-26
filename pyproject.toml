@@ -1,0 +1,13 @@
+[project]
+name = "novel-agent-mvp"
+version = "0.1.0"
+description = "文件驱动、可审查、可归档、可扩展到 RP 的小说多 Agent MVP"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.0",
+  "PyYAML>=6.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
