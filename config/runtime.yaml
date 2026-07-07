@@ -3,3 +3,7 @@ runner:
   max_retries: 3
   backoff_seconds: [4, 8, 12]
   max_concurrent: 5
+
+workflow:
+  maximal_recursive_calling_depth: 1
+  max_calls_multiplier: 2  # max agent calls = max_calls_multiplier × node count

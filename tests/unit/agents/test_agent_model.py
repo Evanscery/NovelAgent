@@ -1,4 +1,4 @@
-"""Tests for app.agents.agent — Agent dataclass with all 11 refactor_guide attributes."""
+"""Tests for app.agents.agent — Agent dataclass with all 12 attributes (11 refactor_guide + allow_recursive)."""
 
 from __future__ import annotations
 
@@ -34,6 +34,7 @@ def _make_agent(**overrides: object) -> Agent:
         "tools": ["read", "search", "write"],
         "head": None,
         "tail": None,
+        "allow_recursive": True,
     }
     defaults.update(overrides)
     return Agent(**defaults)  # type: ignore[arg-type]
@@ -42,11 +43,11 @@ def _make_agent(**overrides: object) -> Agent:
 _AGENT_FIELD_NAMES = {f.name for f in fields(Agent)}
 
 
-# ── 11 attributes present ──────────────────────────────────────────────
+# ── 12 attributes present ──────────────────────────────────────────────
 
 
-class TestAgentHasAllElevenAttributes:
-    """Agent must carry all 11 attributes per refactor_guide:62-73."""
+class TestAgentHasAllTwelveAttributes:
+    """Agent must carry all 12 attributes: 11 refactor_guide:62-73 + allow_recursive (todo 18)."""
 
     def test_has_id(self) -> None:
         assert "id" in _AGENT_FIELD_NAMES
@@ -81,10 +82,13 @@ class TestAgentHasAllElevenAttributes:
     def test_has_tail(self) -> None:
         assert "tail" in _AGENT_FIELD_NAMES
 
-    def test_field_count_is_eleven(self) -> None:
-        assert len(_AGENT_FIELD_NAMES) == 11
+    def test_has_allow_recursive(self) -> None:
+        assert "allow_recursive" in _AGENT_FIELD_NAMES
 
-    def test_all_eleven_fields_populated(self) -> None:
+    def test_field_count_is_twelve(self) -> None:
+        assert len(_AGENT_FIELD_NAMES) == 12
+
+    def test_all_twelve_fields_populated(self) -> None:
         agent = _make_agent()
         assert agent.id == "director-001"
         assert agent.name == "director"
@@ -97,6 +101,7 @@ class TestAgentHasAllElevenAttributes:
         assert agent.tools == ["read", "search", "write"]
         assert agent.head is None
         assert agent.tail is None
+        assert agent.allow_recursive is True
 
 
 # ── id validation ──────────────────────────────────────────────────────
@@ -179,6 +184,11 @@ class TestAgentIsFrozen:
         with pytest.raises(FrozenInstanceError):
             agent.tail = "new tail"  # type: ignore[misc]
 
+    def test_cannot_mutate_allow_recursive(self) -> None:
+        agent = _make_agent()
+        with pytest.raises(FrozenInstanceError):
+            agent.allow_recursive = False  # type: ignore[misc]
+
 
 # ── replace() returns new Agent ─────────────────────────────────────────
 
@@ -230,6 +240,12 @@ class TestAgentReplace:
         assert new_agent.tail == "TAIL"
         assert agent.head is None
         assert agent.tail is None
+
+    def test_replace_can_change_allow_recursive(self) -> None:
+        agent = _make_agent(allow_recursive=True)
+        new_agent = replace(agent, allow_recursive=False)
+        assert new_agent.allow_recursive is False
+        assert agent.allow_recursive is True
 
 
 # ── RunnerAgent Protocol structural compatibility ──────────────────────
@@ -400,3 +416,29 @@ class TestAgentPermissionField:
         empty_perm = parse_permission({})
         agent = _make_agent(permission=empty_perm)
         assert agent.permission.rules == {}
+
+
+# ── allow_recursive (12th attribute, todo 18) ──────────────────────────
+
+
+class TestAgentAllowRecursive:
+    """allow_recursive: runtime-only flag, default True, serializable to yaml."""
+
+    def test_default_allow_recursive_is_true(self) -> None:
+        agent = Agent(
+            id="a",
+            name="n",
+            task="t",
+            input="i",
+            output="o",
+            permission=_make_permission(),
+        )
+        assert agent.allow_recursive is True
+
+    def test_allow_recursive_can_be_false(self) -> None:
+        agent = _make_agent(allow_recursive=False)
+        assert agent.allow_recursive is False
+
+    def test_allow_recursive_is_bool(self) -> None:
+        agent = _make_agent()
+        assert isinstance(agent.allow_recursive, bool)

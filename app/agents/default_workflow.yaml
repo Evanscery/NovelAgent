@@ -1,1 +1,62 @@
-# Built-in default DAG — implemented in todo 19
+# Built-in default workflow canvas — linear, no feedback.
+# Per refactor_guide:92-101: director (mandatory) + recaller/scout/writer/critic/maintainer.
+# This is a CanvasGraph (user-canvas format); parse_canvas_to_tree compiles it
+# into an expanded WorkflowTree at runtime.
+#
+# Graph:
+#   root -> recaller
+#   root -> scout
+#   recaller -> writer
+#   scout -> writer
+#   writer -> critic
+#   critic -> maintainer
+#
+# recaller and scout both feed writer (writer depends on both — writer's
+# dependency_ids will list both recaller and scout, one as parent_id and
+# the other as a dependency). No feedback wires (repeat_count=1 everywhere).
+
+nodes:
+  - id: root
+    agent_name: director
+    description: 决策与任务分配
+    params: {}
+  - id: recaller
+    agent_name: recaller
+    description: 召回数据
+    params: {}
+  - id: scout
+    agent_name: scout
+    description: 提供灵感
+    params: {}
+  - id: writer
+    agent_name: writer
+    description: 文本生成
+    params: {}
+  - id: critic
+    agent_name: critic
+    description: 对抗式/批判式修改建议
+    params: {}
+  - id: maintainer
+    agent_name: maintainer
+    description: 更新/维护数据
+    params: {}
+
+wires:
+  - from_node: root
+    to_node: recaller
+    repeat_count: 1
+  - from_node: root
+    to_node: scout
+    repeat_count: 1
+  - from_node: recaller
+    to_node: writer
+    repeat_count: 1
+  - from_node: scout
+    to_node: writer
+    repeat_count: 1
+  - from_node: writer
+    to_node: critic
+    repeat_count: 1
+  - from_node: critic
+    to_node: maintainer
+    repeat_count: 1

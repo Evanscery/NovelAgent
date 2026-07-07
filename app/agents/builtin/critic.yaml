@@ -1,0 +1,13 @@
+name: critic
+task: 对抗式/批判式修改建议。审查正文的角色一致性、连续性、文风。
+input: 大纲、短期目标、当前状态、角色记忆、世界书、本轮正文
+output: 修改建议清单（按严重程度排序）
+permission:
+  read: [outline, short_goal, state, character_memory, worldbook]
+  write: [notes]
+model: standard
+skills: []
+tools: [read, write]
+head: null
+tail: null
+allow_recursive: true

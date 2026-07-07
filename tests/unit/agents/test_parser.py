@@ -28,6 +28,7 @@ def _make_agent(**overrides: object) -> Agent:
         "tools": ["read", "search", "write"],
         "head": None,
         "tail": None,
+        "allow_recursive": True,
     }
     defaults.update(overrides)
     return Agent(**defaults)  # type: ignore[arg-type]
@@ -325,3 +326,51 @@ class TestPromptIntegration:
         assert "## 可用工具" in prompt
         assert "## 可用技能" not in prompt
         assert "## 上下文" not in prompt
+
+
+# ── Flow sequence injection (todo 18) ──────────────────────────────────
+
+
+class TestFlowSequenceSection:
+    """parse_agent_to_prompt injects the 工作流执行顺序 section when flow_sequence is non-empty."""
+
+    def test_flow_sequence_included_when_non_empty(self) -> None:
+        agent = _make_agent()
+        flow = "1. recaller — 召回数据 (depth=1)\n2. writer — 文本生成 (depth=2)"
+        prompt = parse_agent_to_prompt(agent, flow_sequence=flow)
+        assert "## 工作流执行顺序" in prompt
+        assert "recaller" in prompt
+        assert "writer" in prompt
+
+    def test_flow_sequence_omitted_when_empty(self) -> None:
+        agent = _make_agent()
+        prompt = parse_agent_to_prompt(agent, flow_sequence="")
+        assert "## 工作流执行顺序" not in prompt
+
+    def test_flow_sequence_omitted_when_not_provided(self) -> None:
+        agent = _make_agent()
+        prompt = parse_agent_to_prompt(agent)
+        assert "## 工作流执行顺序" not in prompt
+
+    def test_flow_sequence_appears_after_tools_before_context(self) -> None:
+        """Section order: tools < 工作流执行顺序 < 上下文."""
+        agent = _make_agent()
+        prompt = parse_agent_to_prompt(agent, context="ctx", flow_sequence="flow text")
+        tools_idx = prompt.index("## 可用工具")
+        flow_idx = prompt.index("## 工作流执行顺序")
+        ctx_idx = prompt.index("## 上下文")
+        assert tools_idx < flow_idx < ctx_idx
+
+    def test_flow_sequence_with_context_both_present(self) -> None:
+        agent = _make_agent()
+        prompt = parse_agent_to_prompt(agent, context="运行时上下文", flow_sequence="flow")
+        assert "## 工作流执行顺序" in prompt
+        assert "## 上下文" in prompt
+        assert "运行时上下文" in prompt
+
+    def test_allow_recursive_never_in_prompt(self) -> None:
+        """allow_recursive is runtime-only — must NEVER appear in the prompt."""
+        agent = _make_agent(allow_recursive=False)
+        prompt = parse_agent_to_prompt(agent, flow_sequence="flow")
+        assert "allow_recursive" not in prompt
+        assert "递归" not in prompt or "可递归召回" not in prompt  # task text may contain 递归; flag itself absent

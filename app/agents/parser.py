@@ -34,10 +34,10 @@ def _format_permission_section(agent: Agent) -> str:
     )
 
 
-def parse_agent_to_prompt(agent: Agent, context: str = "") -> str:
+def parse_agent_to_prompt(agent: Agent, context: str = "", flow_sequence: str = "") -> str:
     """Assemble a prompt string from the agent's attributes at runtime.
 
-    The prompt is built dynamically from the agent's 11 attributes (NOT
+    The prompt is built dynamically from the agent's attributes (NOT
     loaded from a static ``.md`` file). Section order:
 
     1. ``head``        (prepended if present)
@@ -47,16 +47,27 @@ def parse_agent_to_prompt(agent: Agent, context: str = "") -> str:
     5. ``## 权限限制``    (always — context isolation is mandatory)
     6. ``## 可用技能``    (only if ``agent.skills`` is non-empty)
     7. ``## 可用工具``    (always — read/search/write)
-    8. ``## 上下文``     (only if *context* is non-empty)
-    9. ``tail``        (appended if present)
+    8. ``## 工作流执行顺序`` (only if *flow_sequence* is non-empty — director-only)
+    9. ``## 上下文``     (only if *context* is non-empty)
+    10. ``tail``        (appended if present)
 
-    The function is deterministic: the same ``agent`` + ``context`` always
-    produce byte-identical output.
+    The ``flow_sequence`` parameter (todo 18) is the linear execution-order
+    text generated from the workflow tree by
+    :func:`app.agents.workflow.generate_flow_sequence`. It is injected here
+    so the director — which defaults to full-recall of the workflow
+    resource — knows the execution order. Per the todo 18 design,
+    ``allow_recursive`` is a runtime-only attribute and is NEVER emitted
+    into the prompt.
+
+    The function is deterministic: the same ``agent`` + ``context`` +
+    ``flow_sequence`` always produce byte-identical output.
 
     Args:
-        agent:   The :class:`Agent` whose attributes drive the prompt.
-        context: Optional runtime context string (e.g. recalled memory,
+        agent:         The :class:`Agent` whose attributes drive the prompt.
+        context:       Optional runtime context string (e.g. recalled memory,
             current state). Empty string means no context section.
+        flow_sequence: Optional workflow execution-order text (director-only).
+            Empty string means no 工作流执行顺序 section.
 
     Returns:
         The assembled prompt as a markdown string with ``##`` sections.
@@ -75,6 +86,9 @@ def parse_agent_to_prompt(agent: Agent, context: str = "") -> str:
         sections.append(f"## 可用技能\n{', '.join(agent.skills)}")
 
     sections.append(f"## 可用工具\n{', '.join(agent.tools)}")
+
+    if flow_sequence:
+        sections.append(f"## 工作流执行顺序\n{flow_sequence}")
 
     if context:
         sections.append(f"## 上下文\n{context}")

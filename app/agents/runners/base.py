@@ -21,10 +21,20 @@ class RunnerAgent(Protocol):
     and is not yet implemented. A runner only reads ``id`` and ``model``
     from the agent, so we depend on this narrow Protocol to avoid a circular
     import and to keep the runner agent-agnostic.
+
+    ``id`` and ``model`` are declared as read-only properties so that
+    frozen dataclasses (like :class:`app.agents.agent.Agent`) structurally
+    satisfy this Protocol under mypy strict — a frozen dataclass's
+    attributes are read-only after construction, which matches the
+    property contract here. Plain mutable attributes would make mypy
+    reject frozen dataclasses as incompatible.
     """
 
-    id: str
-    model: str | None
+    @property
+    def id(self) -> str: ...
+
+    @property
+    def model(self) -> str | None: ...
 
 
 @dataclass(frozen=True)

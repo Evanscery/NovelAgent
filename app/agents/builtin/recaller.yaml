@@ -1,0 +1,13 @@
+name: recaller
+task: 召回数据。根据当前场景需要，读取相关资源，定位并召回需要的正文或记忆。可递归召回：发现新线索时回调director建议读取更多资源。
+input: 当前状态、短期目标、世界书摘要、角色记忆索引
+output: 召回结果文本（含相关正文片段、记忆、世界书条目）
+permission:
+  read: [state, short_goal, character_memory, worldbook, facts, notes]
+  write: []
+model: standard
+skills: []
+tools: [read, search]
+head: null
+tail: null
+allow_recursive: true
