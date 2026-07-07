@@ -11,9 +11,8 @@ Security middleware
   whose client IP is not on the list is rejected with ``403``. An empty
   whitelist disables the check (open access, intended for local dev).
 
-Routers from todos 22-23 are wired here as stubs (each router module is
-imported only if it has real routes; the project router from todo 21 is
-always included).
+Routers wired here: ``projects`` (todo 21), ``workflow`` + ``chat``
+(todo 22), ``resources`` + ``config`` + ``import_`` + ``novel`` (todo 23).
 """
 
 from __future__ import annotations
@@ -26,7 +25,14 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.routes import chat as chat_routes
+from app.api.routes import config as config_routes
+from app.api.routes import import_ as import_routes
+from app.api.routes import novel as novel_routes
 from app.api.routes import projects as projects_routes
+from app.api.routes import resources as resources_routes
+from app.api.routes import workflow as workflow_routes
+from app.api.routes.workflow import RoundRegistry
 from app.config_loader import ConfigLoader
 
 __all__ = ["create_app"]
@@ -46,6 +52,7 @@ def create_app(root: Path | str) -> FastAPI:
     async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Startup: nothing to spin up yet (no DB, no background workers).
         app.state.root = root_path
+        app.state.round_registry = RoundRegistry()
         yield
         # Shutdown: nothing to tear down yet.
 
@@ -55,6 +62,7 @@ def create_app(root: Path | str) -> FastAPI:
         lifespan=_lifespan,
     )
     app.state.root = root_path  # also set eagerly so TestClient works without lifespan
+    app.state.round_registry = RoundRegistry()  # eager so TestClient works without lifespan
 
     # ── CORS ──────────────────────────────────────────────────────────
     app.add_middleware(
@@ -82,7 +90,11 @@ def create_app(root: Path | str) -> FastAPI:
 
     # ── Routers ───────────────────────────────────────────────────────
     app.include_router(projects_routes.router)
-    # Todos 22-23 will include workflow/chat/resources/config/import/novel
-    # routers here once they carry real routes.
+    app.include_router(workflow_routes.router)
+    app.include_router(chat_routes.router)
+    app.include_router(resources_routes.router)
+    app.include_router(config_routes.router)
+    app.include_router(import_routes.router)
+    app.include_router(novel_routes.router)
 
     return app
