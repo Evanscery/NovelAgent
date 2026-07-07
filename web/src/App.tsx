@@ -1,15 +1,22 @@
 /**
  * App shell layout: NavRail (left, collapsible) + active view (center) +
- * Inspector (right, collapsible placeholder — detailed in todo 32).
+ * Inspector (right, collapsible + drag-resize, context per active view).
  *
  * Per refactor_guide:348 标签页+多级导航, guide:350 风格现代简洁.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import NavRail, { type NavTabId } from "@/components/NavRail";
 import Inspector from "@/components/Inspector";
 import OverviewView from "@/views/OverviewView";
+import WorkflowCanvasView from "@/views/WorkflowCanvasView";
+import ChatView from "@/views/ChatView";
+import ResourceEditorView from "@/views/ResourceEditorView";
+import ConfigView from "@/views/ConfigView";
+import NovelView from "@/views/NovelView";
+import RpView from "@/views/RpView";
+import RunView from "@/views/RunView";
 import { useProjectStore } from "@/stores/projectStore";
 
 type ViewId = NavTabId;
@@ -34,15 +41,6 @@ function pathToView(pathname: string): ViewId {
   return "overview";
 }
 
-function PlaceholderView({ title }: { title: string }) {
-  return (
-    <section className="view view--placeholder">
-      <h2 className="view__title">{title}</h2>
-      <p className="view__hint">此视图将在后续 todo 中实现。</p>
-    </section>
-  );
-}
-
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -55,6 +53,12 @@ export default function App() {
   const [inspectorCollapsed, setInspectorCollapsed] = useState<boolean>(() => {
     return localStorage.getItem("inspector.collapsed") === "1";
   });
+  const [inspectorWidth, setInspectorWidth] = useState<number>(() => {
+    const raw = localStorage.getItem("inspector.width");
+    const parsed = raw === null ? NaN : Number(raw);
+    return Number.isFinite(parsed) && parsed > 200 && parsed < 700 ? parsed : 320;
+  });
+  const resizingRef = useRef(false);
 
   useEffect(() => {
     localStorage.setItem("navrail.collapsed", railCollapsed ? "1" : "0");
@@ -65,8 +69,33 @@ export default function App() {
   }, [inspectorCollapsed]);
 
   useEffect(() => {
+    localStorage.setItem("inspector.width", String(inspectorWidth));
+  }, [inspectorWidth]);
+
+  useEffect(() => {
     void fetchProjects();
   }, [fetchProjects]);
+
+  // Drag-to-resize the Inspector from its left edge.
+  useEffect(() => {
+    if (inspectorCollapsed) return;
+    const onMove = (e: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const next = window.innerWidth - e.clientX;
+      setInspectorWidth(Math.max(220, Math.min(640, next)));
+    };
+    const onUp = () => {
+      resizingRef.current = false;
+      document.body.style.cursor = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [inspectorCollapsed]);
+
   const handleTabChange = (tab: ViewId) => {
     void navigate(VIEW_TO_PATH[tab]);
   };
@@ -82,18 +111,29 @@ export default function App() {
       <main className="app-main">
         <Routes>
           <Route path="/" element={<OverviewView />} />
-          <Route path="/workflow" element={<PlaceholderView title="工作流" />} />
-          <Route path="/chat" element={<PlaceholderView title="Director 对话" />} />
-          <Route path="/resources" element={<PlaceholderView title="资源编辑器" />} />
-          <Route path="/config" element={<PlaceholderView title="配置" />} />
-          <Route path="/novel" element={<PlaceholderView title="作品阅读" />} />
-          <Route path="/rp" element={<PlaceholderView title="RP 互动" />} />
-          <Route path="/run" element={<PlaceholderView title="运行面板" />} />
+          <Route path="/workflow" element={<WorkflowCanvasView />} />
+          <Route path="/chat" element={<ChatView />} />
+          <Route path="/resources" element={<ResourceEditorView />} />
+          <Route path="/config" element={<ConfigView />} />
+          <Route path="/novel" element={<NovelView />} />
+          <Route path="/rp" element={<RpView />} />
+          <Route path="/run" element={<RunView />} />
           <Route path="*" element={<OverviewView />} />
         </Routes>
       </main>
+      {!inspectorCollapsed && (
+        <div
+          className="inspector__resizer"
+          onMouseDown={() => {
+            resizingRef.current = true;
+            document.body.style.cursor = "col-resize";
+          }}
+        />
+      )}
       <Inspector
+        activeView={activeView}
         collapsed={inspectorCollapsed}
+        width={inspectorWidth}
         onToggleCollapse={() => setInspectorCollapsed((v) => !v)}
       />
     </div>
