@@ -343,6 +343,16 @@ def _llm_produce_short_goal(
     Returns the assistant message content (the proposed ShortGoal).
 
     Raises on any non-2xx response so the caller can record the failure.
+
+    gcli endpoint quirk: the upstream gateway occasionally returns HTTP 200
+    with ``finish_reason="length"`` and an EMPTY ``content`` string even
+    though ``max_tokens`` is plenty (verified: completion_tokens=135 with
+    empty content). This is an upstream transport bug, NOT an LLM-quality
+    issue — the model never produced output the gateway could forward.
+    We retry ONCE on this specific condition (200 + empty content) so the
+    smoke is not flaky on a known gateway quirk. This is NOT "iterating on
+    LLM output" (D8 cost guard) — it is re-issuing the same request when
+    the gateway returned an invalid empty response.
     """
     import httpx
 
@@ -364,30 +374,40 @@ def _llm_produce_short_goal(
             {"role": "user", "content": user},
         ],
         "temperature": 0.4,
-        "max_tokens": 600,
+        "max_tokens": 800,
     }
-    resp = httpx.post(
-        f"{base_url.rstrip('/')}/v1/chat/completions",
-        json=payload,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        timeout=timeout,
-    )
-    if resp.status_code != 200:
-        raise RuntimeError(
-            f"LLM endpoint returned HTTP {resp.status_code}: {resp.text[:300]}"
-        )
-    data = resp.json()
-    choices = data.get("choices") or []
-    if not choices:
-        raise RuntimeError("LLM response had no choices")
-    msg = choices[0].get("message") or {}
-    content = msg.get("content") or ""
-    if not isinstance(content, str):
-        raise RuntimeError(f"LLM response content was not a string: {type(content)}")
-    return content
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    url = f"{base_url.rstrip('/')}/v1/chat/completions"
+
+    for attempt in range(2):  # one retry on the empty-content gateway quirk
+        resp = httpx.post(url, json=payload, headers=headers, timeout=timeout)
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"LLM endpoint returned HTTP {resp.status_code}: {resp.text[:300]}"
+            )
+        data = resp.json()
+        choices = data.get("choices") or []
+        if not choices:
+            raise RuntimeError("LLM response had no choices")
+        msg = choices[0].get("message") or {}
+        content = msg.get("content") or ""
+        if not isinstance(content, str):
+            raise RuntimeError(f"LLM response content was not a string: {type(content)}")
+        if content.strip():
+            return content
+        # Empty content. If this is the gateway's finish_reason=length quirk
+        # (verified: 200 + empty content + finish_reason=length), retry once.
+        finish_reason = choices[0].get("finish_reason")
+        if attempt == 0 and finish_reason == "length":
+            continue
+        # Either non-length empty (raise as engineering issue) or second try
+        # also came back empty — surface the raw empty response to the caller
+        # so it is recorded as an engineering-bug note per D8.
+        return content
+    return ""
 
 
 def _short_goal_is_valid(content: str) -> tuple[bool, str]:
