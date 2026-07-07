@@ -485,14 +485,14 @@ class TestNovelFlow:
 
 
 class TestImportStub:
-    def test_post_import_returns_501(self, client: TestClient) -> None:
-        """Step 15: POST /api/import → 501 (stub until todo 34)."""
+    def test_post_import_returns_400_without_source_or_card(self, client: TestClient) -> None:
+        """Step 15: POST /api/import → 400 when neither source nor card is
+        provided (todo 34 replaced the 501 stub with real card-import)."""
         resp = client.post("/api/import", json={})
-        assert resp.status_code == 501, resp.text
+        assert resp.status_code == 400, resp.text
         body = resp.json()
-        # The detail points at todo 34 so a developer reading the error
-        # knows where the real implementation lands.
-        assert "todo 34" in body["detail"].lower()
+        # The detail explains what fields are required.
+        assert "source" in body["detail"].lower() or "card" in body["detail"].lower()
 
 
 # ── Full-flow smoke: all 15 steps in one test ────────────────────────────
@@ -612,10 +612,11 @@ class TestFullApiFlow:
         assert r14.status_code == 200
         assert r14.json()["chapters"] == []
 
-        # 15. POST /api/import → 501 (stub).
+        # 15. POST /api/import → 400 (todo 34 replaced the 501 stub with
+        # real card-import; empty body is now a 400 validation error).
         r15 = client.post("/api/import", json={})
-        assert r15.status_code == 501
-        assert "todo 34" in r15.json()["detail"].lower()
+        assert r15.status_code == 400
+        assert "source" in r15.json()["detail"].lower() or "card" in r15.json()["detail"].lower()
 
         # Sanity: the project_id from step 1 was used in every step.
         # (Defensive — catches a copy-paste bug where a step used a
