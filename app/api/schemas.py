@@ -20,6 +20,7 @@ __all__ = [
     "ConfigResponse",
     "CreateProjectRequest",
     "ImportRequest",
+    "ImportResponse",
     "NovelChapterListResponse",
     "NovelChapterResponse",
     "NovelChapterSummary",
@@ -375,18 +376,56 @@ class NovelChapterResponse(BaseModel):
     content: str
 
 
-# ── Import route (todo 23 stub, todo 34 implements) ─────────────────────
+# ── Import route (todo 34 — compat layer delegation) ─────────────────────
 
 
 class ImportRequest(BaseModel):
-    """POST /api/import body (stub — actual fields land with todo 34).
+    """POST /api/import body — card import via the compat layer.
 
-    Accepted today so clients can call the endpoint; the handler always
-    returns 501 regardless of body contents.
+    Two modes:
+
+    * **Card file path** — ``source`` is a path to a card file on disk
+      (``.json`` for a v2/v3 character card). The handler loads it,
+      infers a :class:`~app.compat.tavern_card.card_migration.CardIR`,
+      scaffolds a new project (or reuses ``project_id`` if given), and
+      materializes the 8 resources from the card.
+    * **Inline card payload** — ``card`` is the parsed card dict directly
+      (useful from a front-end that has already read the file). Same
+      pipeline as above starting at :func:`infer_card_ir`.
+
+    ``display_name`` overrides the project's display name (defaults to the
+    card's name). ``mode`` overrides the runtime plan's recommendation
+    (defaults to the plan's ``recommended_mode``).
     """
 
-    source: str | None = Field(default=None, description="Path or URL to the card/source")
-    project_id: str | None = Field(default=None, description="Target project id (optional)")
-    format: str | None = Field(
-        default=None, description="Hint for the importer (e.g. ``tavern_card``)"
+    source: str | None = Field(default=None, description="Path to a card file on disk")
+    card: dict[str, object] | None = Field(
+        default=None, description="Inline card payload (alternative to ``source``)"
+    )
+    project_id: str | None = Field(
+        default=None, description="Target an existing project id (optional)"
+    )
+    display_name: str | None = Field(
+        default=None, description="Override project display name (defaults to card name)"
+    )
+    mode: str | None = Field(
+        default=None, description="Override mode (novel/rp); defaults to plan recommendation"
+    )
+
+
+class ImportResponse(BaseModel):
+    """POST /api/import success response (201)."""
+
+    project_id: str
+    display_name: str
+    mode: str
+    resources_created: list[str] = Field(
+        default_factory=list,
+        description="Resource types that received card-derived content",
+    )
+    front_scripts_written: int = Field(
+        default=0, description="Number of front scripts copied to front/"
+    )
+    paths: dict[str, str] = Field(
+        default_factory=dict, description="Logical name -> file path written"
     )

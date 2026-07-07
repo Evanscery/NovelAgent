@@ -2,7 +2,10 @@
 
 Per ``docs/refactor_guide.md:70-71``: skills inherit global (公共 skills), are
 mutable, and can be dynamically mounted by the caller. Per ``docs/refactor_guide.md:29``:
-allow extracting 文风/jailbreak from a SillyTavern preset to use as agent skills.
+allow extracting 文风/jailbreak from an imported preset to use as agent skills
+(the compat layer at ``app/compat/tavern_card/preset_extract.py`` owns the
+preset-format parsing; this module is the agent-layer seam that wraps the
+extracted text as :class:`Skill` objects).
 
 The registry is the agent-layer's "global" skills that agents inherit from at
 runtime. The agent attribute model (:class:`app.agents.agent.Agent`) carries a
