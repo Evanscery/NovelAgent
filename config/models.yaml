@@ -1,0 +1,13 @@
+tiers:
+  premium:
+    provider: openai_compatible
+    model_env: MODEL_HIGH
+    rpm: 3
+  standard:
+    provider: openai_compatible
+    model_env: MODEL_FAST
+    rpm: 10
+  cheap:
+    provider: openai_compatible
+    model_env: MODEL_FAST
+    rpm: 10
