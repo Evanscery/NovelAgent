@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 
 from app.runtime.permission import Permission
 
-_DEFAULT_TOOLS: list[str] = ["read", "search", "write"]
+_DEFAULT_TOOLS: list[str] = ["read", "write", "list_files", "glob_files", "grep_lines", "read_lines"]
 
 
 @dataclass(frozen=True)
@@ -47,7 +47,7 @@ class Agent:
         permission:      Context isolation scope (hash<string, vector>).
         model:           Which model config to use; None means use runner default.
         skills:          Available skills list. Mutable (dynamically mountable).
-        tools:           Available tools list. Default: ["read", "search", "write"].
+        tools:           Available tools list. Default: the 6 unified tools
         head:            Prompt head for special prompt structures; None if unused.
         tail:            Prompt tail for special prompt structures; None if unused.
         allow_recursive: Runtime-only flag (NOT injected to prompt). When False

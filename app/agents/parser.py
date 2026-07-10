@@ -46,7 +46,7 @@ def parse_agent_to_prompt(agent: Agent, context: str = "", flow_sequence: str = 
     4. ``## 你的输出格式``   (always)
     5. ``## 权限限制``    (always — context isolation is mandatory)
     6. ``## 可用技能``    (only if ``agent.skills`` is non-empty)
-    7. ``## 可用工具``    (always — read/search/write)
+    7. ``## 可用工具``    (always — read/write/list_files/glob_files/grep_lines/read_lines)
     8. ``## 工作流执行顺序`` (only if *flow_sequence* is non-empty — director-only)
     9. ``## 上下文``     (only if *context* is non-empty)
     10. ``tail``        (appended if present)

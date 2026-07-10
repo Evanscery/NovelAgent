@@ -100,7 +100,7 @@ def _load_agent_yaml(path: Path) -> Agent:
           write: []
         model: standard        # optional
         skills: [recall]       # optional
-        tools: [read, search]  # optional, defaults to read/search/write
+        tools: [read, list_files, glob_files, grep_lines, read_lines]  # optional, defaults to the 6 unified tools
         head: |                # optional
           ...
         tail: |                # optional
@@ -157,7 +157,7 @@ def _load_agent_yaml(path: Path) -> Agent:
         msg = f"Agent yaml {path!s}: 'skills' must be a list"
         raise ValueError(msg)
 
-    tools = raw.get("tools", ["read", "search", "write"])
+    tools = raw.get("tools", ["read", "write", "list_files", "glob_files", "grep_lines", "read_lines"])
     if not isinstance(tools, list):
         msg = f"Agent yaml {path!s}: 'tools' must be a list"
         raise ValueError(msg)

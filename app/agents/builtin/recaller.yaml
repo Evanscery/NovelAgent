@@ -7,7 +7,7 @@ permission:
   write: []
 model: standard
 skills: []
-tools: [read, search]
+tools: [read, list_files, glob_files, grep_lines, read_lines]
 head: null
 tail: null
 allow_recursive: true

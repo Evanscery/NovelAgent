@@ -33,7 +33,9 @@ __all__ = [
 # The standardized tool surface. Per refactor_guide:113-118 NO other tool
 # names are permitted — readFile / readMemory / readLore etc. are forbidden.
 # This frozenset is the single source of truth for "what tools exist".
-ALLOWED_TOOLS: frozenset[str] = frozenset({"read", "search", "write"})
+ALLOWED_TOOLS: frozenset[str] = frozenset(
+    {"read", "write", "list_files", "glob_files", "grep_lines", "read_lines"}
+)
 
 
 # -- Schemas -----------------------------------------------------------------
@@ -57,6 +59,26 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
             "content": "str",
         },
         "returns": "bool",
+    },
+    "list_files": {
+        "name": "list_files",
+        "args": {"resource_type": "str"},
+        "returns": "list[str]",
+    },
+    "glob_files": {
+        "name": "glob_files",
+        "args": {"resource_type": "str", "pattern": "str"},
+        "returns": "list[str]",
+    },
+    "grep_lines": {
+        "name": "grep_lines",
+        "args": {"resource_type": "str", "pattern": "str", "filename": "str | None"},
+        "returns": "list[tuple[str, int, str]]",
+    },
+    "read_lines": {
+        "name": "read_lines",
+        "args": {"resource_type": "str", "filename": "str", "start": "int", "end": "int"},
+        "returns": "str",
     },
 }
 
@@ -89,7 +111,7 @@ def list_available_tools() -> list[str]:
     The order matches :data:`app.agents.agent._DEFAULT_TOOLS` and the order
     the tools are presented to agents in their prompt.
     """
-    return ["read", "search", "write"]
+    return ["read", "list_files", "glob_files", "grep_lines", "read_lines", "write"]
 
 
 # -- ToolFunc Protocol -------------------------------------------------------
@@ -120,6 +142,9 @@ class ToolFunc(Protocol):
 # ``ToolExecutor`` instance.
 TOOL_REGISTRY: dict[str, str] = {
     "read": "read",
-    "search": "search",
     "write": "write",
+    "list_files": "list_files",
+    "glob_files": "glob_files",
+    "grep_lines": "grep_lines",
+    "read_lines": "read_lines",
 }

@@ -7,7 +7,7 @@ permission:
   write: []
 model: premium
 skills: []
-tools: [read, search, write, call_agent, await]
+tools: [read, write, list_files, glob_files, grep_lines, read_lines, call_agent, await]
 head: null
 tail: null
 allow_recursive: true
