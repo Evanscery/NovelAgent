@@ -1,7 +1,7 @@
-"""Tests for ToolDispatcher — parse agent tool calls, dispatch to read/search/write.
+"""Tests for ToolDispatcher — parse agent tool calls, dispatch to unified tools.
 
 Covers both supported parse formats (JSON code block + simple ``TOOL: name(...)``
-line), the three allowed tools, ``UnknownToolError`` for anything else, and
+line), the allowed tool set, ``UnknownToolError`` for anything else, and
 propagation of ``PermissionDenied`` from the scoped tools (permission
 enforcement lives inside ``ScopedTools``, not the dispatcher).
 """
@@ -41,7 +41,10 @@ class MockScopedTools:
     """
 
     read_return: Any = "STATE-CONTENT"
-    search_return: list[Any] = field(default_factory=lambda: [{"filename": "state.md"}])
+    list_files_return: list[str] = field(default_factory=lambda: ["a.md", "b.md"])
+    glob_files_return: list[str] = field(default_factory=lambda: ["a.md"])
+    grep_lines_return: list[tuple[str, int, str]] = field(default_factory=lambda: [("a.md", 1, "match")])
+    read_lines_return: str = "line content"
     write_return: Any = None
     denied: set[str] = field(default_factory=set)
     calls: list[tuple[str, dict[str, object]]] = field(default_factory=list)
@@ -52,17 +55,35 @@ class MockScopedTools:
             raise PermissionDenied("read denied for this resource")
         return self.read_return
 
-    def search(self, **kwargs: Any) -> Any:
-        self.calls.append(("search", dict[str, object](kwargs)))
-        if "search" in self.denied:
-            raise PermissionDenied("search denied for this resource")
-        return self.search_return
-
     def write(self, **kwargs: Any) -> Any:
         self.calls.append(("write", dict[str, object](kwargs)))
         if "write" in self.denied:
             raise PermissionDenied("write denied for this resource")
         return self.write_return
+
+    def list_files(self, **kwargs: Any) -> Any:
+        self.calls.append(("list_files", dict[str, object](kwargs)))
+        if "list_files" in self.denied:
+            raise PermissionDenied("list_files denied for this resource")
+        return self.list_files_return
+
+    def glob_files(self, **kwargs: Any) -> Any:
+        self.calls.append(("glob_files", dict[str, object](kwargs)))
+        if "glob_files" in self.denied:
+            raise PermissionDenied("glob_files denied for this resource")
+        return self.glob_files_return
+
+    def grep_lines(self, **kwargs: Any) -> Any:
+        self.calls.append(("grep_lines", dict[str, object](kwargs)))
+        if "grep_lines" in self.denied:
+            raise PermissionDenied("grep_lines denied for this resource")
+        return self.grep_lines_return
+
+    def read_lines(self, **kwargs: Any) -> Any:
+        self.calls.append(("read_lines", dict[str, object](kwargs)))
+        if "read_lines" in self.denied:
+            raise PermissionDenied("read_lines denied for this resource")
+        return self.read_lines_return
 
 
 # ── parse: JSON code block ──────────────────────────────────────────────────
@@ -79,11 +100,11 @@ def test_parse_json_code_block_extracts_name_and_args() -> None:
 
 def test_parse_json_block_with_extra_whitespace() -> None:
     dispatcher = ToolDispatcher(MockScopedTools())
-    text = '```tool\n\n  {"name": "search", "args": {"query": "tavern", "resource_type": "worldbook"}}  \n\n```'
+    text = '```tool\n\n  {"name": "list_files", "args": {"resource_type": "worldbook"}}  \n\n```'
     call = dispatcher.parse_tool_call(text)
     assert call is not None
-    assert call.name == "search"
-    assert call.args == {"query": "tavern", "resource_type": "worldbook"}
+    assert call.name == "list_files"
+    assert call.args == {"resource_type": "worldbook"}
 
 
 def test_parse_json_block_with_empty_args() -> None:
@@ -132,11 +153,11 @@ def test_parse_simple_parenthetical_multiple_positionals() -> None:
 
 def test_parse_simple_parenthetical_key_value_pairs() -> None:
     dispatcher = ToolDispatcher(MockScopedTools())
-    text = "TOOL: search(resource_type=worldbook, query=tavern)"
+    text = "TOOL: grep_lines(resource_type=worldbook, pattern=tavern)"
     call = dispatcher.parse_tool_call(text)
     assert call is not None
-    assert call.name == "search"
-    assert call.args == {"resource_type": "worldbook", "query": "tavern"}
+    assert call.name == "grep_lines"
+    assert call.args == {"resource_type": "worldbook", "pattern": "tavern"}
 
 
 def test_parse_simple_parenthetical_empty_args() -> None:
@@ -241,17 +262,42 @@ def test_dispatch_write_returns_success() -> None:
     ]
 
 
-def test_dispatch_search_returns_hits() -> None:
-    hits = [{"filename": "worldbook.md", "line": 42}]
-    tools = MockScopedTools(search_return=hits)
+def test_dispatch_list_files_returns_filenames() -> None:
+    files = ["a.md", "b.md"]
+    tools = MockScopedTools(list_files_return=files)
     dispatcher = ToolDispatcher(tools)
     from app.runtime.runners.base import ToolCall
 
     result = dispatcher.dispatch(
-        ToolCall(name="search", args={"resource_type": "worldbook", "query": "tavern"})
+        ToolCall(name="list_files", args={"resource_type": "worldbook"})
+    )
+    assert result.ok is True
+    assert result.output == files
+
+
+def test_dispatch_grep_lines_returns_hits() -> None:
+    hits = [("worldbook.md", 42, "matching line")]
+    tools = MockScopedTools(grep_lines_return=hits)
+    dispatcher = ToolDispatcher(tools)
+    from app.runtime.runners.base import ToolCall
+
+    result = dispatcher.dispatch(
+        ToolCall(name="grep_lines", args={"resource_type": "worldbook", "pattern": "tavern"})
     )
     assert result.ok is True
     assert result.output == hits
+
+
+def test_dispatch_read_lines_returns_text() -> None:
+    tools = MockScopedTools(read_lines_return="line2\nline3")
+    dispatcher = ToolDispatcher(tools)
+    from app.runtime.runners.base import ToolCall
+
+    result = dispatcher.dispatch(
+        ToolCall(name="read_lines", args={"resource_type": "state", "filename": "s.md", "start": 2, "end": 3})
+    )
+    assert result.ok is True
+    assert result.output == "line2\nline3"
 
 
 # ── dispatch: unknown tool → UnknownToolError ──────────────────────────────
@@ -287,7 +333,9 @@ def test_dispatch_unknown_tool_error_message_lists_allowed_tools() -> None:
 
     with pytest.raises(UnknownToolError) as exc_info:
         dispatcher.dispatch(ToolCall(name="delete", args={}))
-    assert "read/search/write" in str(exc_info.value)
+    assert "read" in str(exc_info.value)
+    assert "write" in str(exc_info.value)
+    assert "list_files" in str(exc_info.value)
 
 
 # ── dispatch: permission propagation ────────────────────────────────────────

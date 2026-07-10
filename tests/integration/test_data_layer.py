@@ -109,9 +109,6 @@ class TestDataLayerFlow:
             assert (resource.path / "manifest.json").is_file(), (
                 f"{type_name} manifest.json missing"
             )
-            assert (resource.path / ".index").is_file(), (
-                f"{type_name} .index missing"
-            )
             # Resource has correct type and id
             assert resource.type == type_name
 

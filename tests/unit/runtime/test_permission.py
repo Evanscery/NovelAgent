@@ -203,49 +203,63 @@ class TestScopedWritePermission:
             tools.write("state", "s.md", "x")
 
 
-# ── ScopedTools: search uses 'read' permission ────────────────────────────────
+# ── ScopedTools: file I/O tools use 'read' permission ────────────────────────
 
 
-class TestScopedSearchPermission:
-    """search is a read op — gated by 'read', not 'write'."""
+class TestScopedFileToolsPermission:
+    """list_files/glob_files/grep_lines/read_lines are read ops — gated by 'read'."""
 
-    def test_search_allowed_with_read(self, tmp_path: Path) -> None:
+    def test_list_files_allowed_with_read(self, tmp_path: Path) -> None:
         tools = _make_scoped(
             tmp_path, {"read": ["worldbook"], "write": ["worldbook"]}
         )
         tools.write("worldbook", "magic.md", "## 魔法体系\n火球术")
-        hits = tools.search("worldbook", "魔法")
-        assert len(hits) >= 1
+        result = tools.list_files("worldbook")
+        assert "magic.md" in result
 
-    def test_search_denied_without_read(self, tmp_path: Path) -> None:
+    def test_list_files_denied_without_read(self, tmp_path: Path) -> None:
         tools = _make_scoped(tmp_path, {"write": ["worldbook"]})
-        # Even though write is allowed, search (a read op) is not.
         with pytest.raises(PermissionDenied) as exc_info:
-            tools.search("worldbook", "anything")
+            tools.list_files("worldbook")
         assert exc_info.value.action == "read"
 
-    def test_search_denied_on_disallowed_resource(self, tmp_path: Path) -> None:
+    def test_glob_files_denied_without_read(self, tmp_path: Path) -> None:
+        tools = _make_scoped(tmp_path, {"write": ["worldbook"]})
+        with pytest.raises(PermissionDenied):
+            tools.glob_files("worldbook", "*.md")
+
+    def test_grep_lines_allowed_with_read(self, tmp_path: Path) -> None:
+        tools = _make_scoped(
+            tmp_path, {"read": ["worldbook"], "write": ["worldbook"]}
+        )
+        tools.write("worldbook", "magic.md", "## 魔法体系\n火球术")
+        hits = tools.grep_lines("worldbook", "魔法")
+        assert len(hits) >= 1
+
+    def test_grep_lines_denied_without_read(self, tmp_path: Path) -> None:
+        tools = _make_scoped(tmp_path, {"write": ["worldbook"]})
+        with pytest.raises(PermissionDenied) as exc_info:
+            tools.grep_lines("worldbook", "anything")
+        assert exc_info.value.action == "read"
+
+    def test_read_lines_denied_without_read(self, tmp_path: Path) -> None:
+        tools = _make_scoped(tmp_path, {"write": ["worldbook"]})
+        with pytest.raises(PermissionDenied):
+            tools.read_lines("worldbook", "any.md", 1, 5)
+
+    def test_file_tools_denied_on_disallowed_resource(self, tmp_path: Path) -> None:
         tools = _make_scoped(tmp_path, {"read": ["state"]})
         with pytest.raises(PermissionDenied):
-            tools.search("worldbook", "anything")
-
-    def test_search_returns_real_hits_from_store(self, tmp_path: Path) -> None:
-        """ScopedTools delegates to ResourceStore.search after the check."""
-        tools = _make_scoped(
-            tmp_path, {"read": ["outline"], "write": ["outline"]}
-        )
-        tools.write("outline", "ch1.md", "# Chapter 1\n## Scene A\n## Scene B")
-        hits = tools.search("outline", "Scene")
-        assert len(hits) >= 2
-        # Hit shape comes from the real ResourceStore.
-        assert all(h.filename == "ch1.md" for h in hits)
+            tools.list_files("worldbook")
+        with pytest.raises(PermissionDenied):
+            tools.grep_lines("worldbook", "anything")
 
 
 # ── ScopedTools delegates to ResourceStore after permission check ─────────────
 
 
 class TestScopedToolsDelegatesToStore:
-    """ScopedTools delegates to ResourceStore's read/search/write after the check."""
+    """ScopedTools delegates to ResourceStore's read/write/file I/O after the check."""
 
     def test_read_returns_actual_store_content(self, tmp_path: Path) -> None:
         tools = _make_scoped(
@@ -264,18 +278,6 @@ class TestScopedToolsDelegatesToStore:
         store = ResourceStore(tmp_path)
         resource = store.create_resource("facts", "facts")
         assert store.read(resource, "truth.md") == "gravity is real"
-
-    def test_index_updated_via_store(self, tmp_path: Path) -> None:
-        """ResourceStore.write updates the .index — proving real delegation."""
-        tools = _make_scoped(
-            tmp_path, {"read": ["outline"], "write": ["outline"]}
-        )
-        tools.write("outline", "arc.md", "# Arc 1\n## Act 1\ncontent")
-        store = ResourceStore(tmp_path)
-        resource = store.create_resource("outline", "outline")
-        index = (resource.path / ".index").read_text(encoding="utf-8")
-        assert "# arc.md" in index
-        assert "# Arc 1" in index
 
     def test_inject_into_tools_returns_scoped_tools(self, tmp_path: Path) -> None:
         store = ResourceStore(tmp_path)

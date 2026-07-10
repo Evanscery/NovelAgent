@@ -1,4 +1,4 @@
-"""Tests for ResourceStore CRUD, read/write/search, index, and permission check."""
+"""Tests for ResourceStore CRUD, read/write, and file I/O helpers."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from app.data.resource_types import RESOURCE_TYPE_REGISTRY, State, Worldbook
+from app.data.resource_types import RESOURCE_TYPE_REGISTRY, State
 from app.data.store import ResourceStore
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -29,7 +29,6 @@ class TestCreateResource:
         assert resource.path.exists()
         assert (resource.path / "properties.md").exists()
         assert (resource.path / "manifest.json").exists()
-        assert (resource.path / ".index").exists()
 
     def test_returns_correct_type(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
@@ -94,7 +93,6 @@ class TestReadWrite:
         # Metadata files should not appear
         assert "properties.md" not in all_content
         assert "manifest.json" not in all_content
-        assert ".index" not in all_content
 
     def test_read_nonexistent_file_raises(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
@@ -113,173 +111,144 @@ class TestReadWrite:
         assert result == "deep content"
 
 
-# ── search ────────────────────────────────────────────────────────────
+# ── list_files ────────────────────────────────────────────────────────
 
 
-class TestSearch:
-    """search returns hits matching query in headings/content."""
+class TestListFiles:
+    """list_files returns content file names, excluding metadata."""
 
-    def test_search_matches_content(self, tmp_path: Path) -> None:
+    def test_list_files_returns_sorted_content_files(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        resource = store.create_resource("outline", "o1")
+        store.write(resource, "b.md", "b")
+        store.write(resource, "a.md", "a")
+
+        result = store.list_files(resource)
+        assert result == ["a.md", "b.md"]
+
+    def test_list_files_excludes_metadata(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        resource = store.create_resource("state", "s1")
+
+        result = store.list_files(resource)
+        assert "properties.md" not in result
+        assert "manifest.json" not in result
+
+    def test_list_files_empty_when_no_content(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        resource = store.create_resource("notes", "n1")
+
+        assert store.list_files(resource) == []
+
+
+# ── glob_files ────────────────────────────────────────────────────────
+
+
+class TestGlobFiles:
+    """glob_files matches file names against an fnmatch pattern."""
+
+    def test_glob_matches_pattern(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        resource = store.create_resource("outline", "o1")
+        store.write(resource, "chapter_01.md", "c1")
+        store.write(resource, "chapter_02.md", "c2")
+        store.write(resource, "notes.md", "notes")
+
+        result = store.glob_files(resource, "chapter_*.md")
+        assert "chapter_01.md" in result
+        assert "chapter_02.md" in result
+        assert "notes.md" not in result
+
+    def test_glob_no_match_returns_empty(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        resource = store.create_resource("state", "s1")
+        store.write(resource, "only.md", "content")
+
+        assert store.glob_files(resource, "nonexistent_*") == []
+
+
+# ── grep_lines ────────────────────────────────────────────────────────
+
+
+class TestGrepLines:
+    """grep_lines returns (filename, lineno, text) tuples for regex matches."""
+
+    def test_grep_matches_content(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
         resource = store.create_resource("worldbook", "wb1")
         store.write(resource, "magic.md", "## 魔法体系\n\n火球术是最常见的攻击魔法。")
 
-        hits = store.search(resource, "魔法")
+        hits = store.grep_lines(resource, "魔法")
         assert len(hits) >= 1
-        found = [h for h in hits if "魔法" in h.matching_text]
-        assert len(found) >= 1
+        assert all(isinstance(h, tuple) and len(h) == 3 for h in hits)
+        assert any(h[0] == "magic.md" for h in hits)
 
-    def test_search_matches_headings(self, tmp_path: Path) -> None:
+    def test_grep_case_insensitive(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
-        resource = store.create_resource("outline", "o3")
-        store.write(resource, "chapters.md", "# Chapter 1\n## Scene 1\n## Scene 2")
-
-        hits = store.search(resource, "Scene")
-        assert len(hits) >= 2
-
-    def test_search_case_insensitive(self, tmp_path: Path) -> None:
-        store = _make_store(tmp_path)
-        resource = store.create_resource("state", "s2")
+        resource = store.create_resource("state", "s1")
         store.write(resource, "summary.md", "The Hero arrived at the Village.")
 
-        hits = store.search(resource, "village")
+        hits = store.grep_lines(resource, "(?i)village")
         assert len(hits) == 1
-        assert "Village" in hits[0].matching_text
+        assert "Village" in hits[0][2]
 
-    def test_search_no_match(self, tmp_path: Path) -> None:
+    def test_grep_no_match(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
         resource = store.create_resource("facts", "f1")
         store.write(resource, "facts.md", "Some known facts.")
 
-        hits = store.search(resource, "zzz_nonexistent")
-        assert hits == []
+        assert store.grep_lines(resource, "zzz_nonexistent") == []
 
-    def test_search_returns_searchhit_shape(self, tmp_path: Path) -> None:
-        """Each hit is a SearchHit with the expected fields."""
+    def test_grep_specific_filename(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
-        resource = store.create_resource("notes", "n2")
-        store.write(resource, "note.md", "## Observation\n\nNoted observation here.")
+        resource = store.create_resource("notes", "n1")
+        store.write(resource, "a.md", "target line")
+        store.write(resource, "b.md", "target line")
 
-        hits = store.search(resource, "Observation")
-        assert len(hits) >= 1
-        hit = hits[0]
-        assert isinstance(hit.filename, str)
-        assert isinstance(hit.line_number, int)
-        assert isinstance(hit.matching_text, str)
-        assert isinstance(hit.context, str)
-        assert hit.filename == "note.md"
-        assert "Observation" in hit.matching_text
+        hits = store.grep_lines(resource, "target", filename="a.md")
+        assert len(hits) == 1
+        assert all(h[0] == "a.md" for h in hits)
 
-    def test_search_skips_metadata_files(self, tmp_path: Path) -> None:
-        """properties.md, manifest.json, .index are not searched."""
+    def test_grep_skips_metadata_files(self, tmp_path: Path) -> None:
+        """properties.md, manifest.json are not searched."""
         store = _make_store(tmp_path)
-        resource = store.create_resource("outline", "o4")
-        # The index file has the filename "note.md" in it — this tests .index
-        # isn't searched.
+        resource = store.create_resource("outline", "o1")
         store.write(resource, "note.md", "real content")
 
-        hits = store.search(resource, "properties")
-        # "properties" could appear in .index only (the heading line in index
-        # doesn't have the word "properties", but let's verify no hit from
-        # metadata files)
+        hits = store.grep_lines(resource, "properties")
         for hit in hits:
-            assert hit.filename not in {"properties.md", "manifest.json", ".index"}
+            assert hit[0] not in {"properties.md", "manifest.json", ".index"}
 
 
-# ── permission_check ─────────────────────────────────────────────────
+# ── read_lines ────────────────────────────────────────────────────────
 
 
-class TestPermissionCheck:
-    """permission_check returns bool based on agent_permission hash."""
+class TestReadLines:
+    """read_lines returns a 1-based line range from a file."""
 
-    def test_agent_can_read_state(self) -> None:
-        store = ResourceStore(Path("/tmp"))
-        agent_perm: dict[str, list[str]] = {"read": ["state", "memory"]}
-        resource = State(
-            id="s1",
-            type="state",
-            path=Path("/tmp/resources/state"),
-            properties=State.default_properties(),
-            manifest=type(
-                "Manifest",
-                (),
-                {"type": "state", "properties_ref": "props.md"},
-            )(),  # type: ignore[arg-type]
-        )
+    def test_read_lines_returns_range(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        resource = store.create_resource("state", "s1")
+        store.write(resource, "multi.md", "line1\nline2\nline3\nline4\nline5")
 
-        assert store.permission_check(agent_perm, resource) is True
+        result = store.read_lines(resource, "multi.md", 2, 4)
+        assert result == "line2\nline3\nline4"
 
-    def test_agent_cannot_read_worldbook(self) -> None:
-        store = ResourceStore(Path("/tmp"))
-        agent_perm: dict[str, list[str]] = {"read": ["state", "memory"]}
-        resource = Worldbook(
-            id="wb1",
-            type="worldbook",
-            path=Path("/tmp/resources/worldbook"),
-            properties=Worldbook.default_properties(),
-            manifest=type(
-                "Manifest",
-                (),
-                {"type": "worldbook", "properties_ref": "props.md"},
-            )(),  # type: ignore[arg-type]
-        )
+    def test_read_lines_single_line(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        resource = store.create_resource("state", "s1")
+        store.write(resource, "multi.md", "line1\nline2\nline3")
 
-        assert store.permission_check(agent_perm, resource) is False
+        result = store.read_lines(resource, "multi.md", 2, 2)
+        assert result == "line2"
 
-    def test_agent_can_write_allowed_type(self) -> None:
-        store = ResourceStore(Path("/tmp"))
-        agent_perm: dict[str, list[str]] = {"write": ["short_goal"]}
-        resource = State(
-            id="sg1",
-            type="short_goal",
-            path=Path("/tmp/resources/short_goal"),
-            properties=State.default_properties(),
-            manifest=type(
-                "Manifest",
-                (),
-                {"type": "short_goal", "properties_ref": "props.md"},
-            )(),  # type: ignore[arg-type]
-        )
+    def test_read_lines_full_range(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        resource = store.create_resource("state", "s1")
+        store.write(resource, "f.md", "a\nb\nc")
 
-        # 'write' permission to 'short_goal' should allow visibility
-        assert store.permission_check(agent_perm, resource) is True
-
-    def test_empty_permission_returns_false(self) -> None:
-        store = ResourceStore(Path("/tmp"))
-        agent_perm: dict[str, list[str]] = {}
-        resource = State(
-            id="s1",
-            type="state",
-            path=Path("/tmp/resources/state"),
-            properties=State.default_properties(),
-            manifest=type(
-                "Manifest",
-                (),
-                {"type": "state", "properties_ref": "props.md"},
-            )(),  # type: ignore[arg-type]
-        )
-
-        assert store.permission_check(agent_perm, resource) is False
-
-    def test_no_side_effects(self) -> None:
-        """permission_check does not mutate the input dict."""
-        store = ResourceStore(Path("/tmp"))
-        agent_perm: dict[str, list[str]] = {"read": ["state"]}
-        resource = State(
-            id="s1",
-            type="state",
-            path=Path("/tmp/resources/state"),
-            properties=State.default_properties(),
-            manifest=type(
-                "Manifest",
-                (),
-                {"type": "state", "properties_ref": "props.md"},
-            )(),  # type: ignore[arg-type]
-        )
-
-        before = str(agent_perm)
-        store.permission_check(agent_perm, resource)
-        assert str(agent_perm) == before
+        result = store.read_lines(resource, "f.md", 1, 3)
+        assert result == "a\nb\nc"
 
 
 # ── list_resources ────────────────────────────────────────────────────
@@ -312,39 +281,3 @@ class TestListResources:
         resources = store.list_resources()
         assert len(resources) == 1
         assert resources[0].type == "outline"
-
-
-# ── Index maintenance ─────────────────────────────────────────────────
-
-
-class TestIndex:
-    """.index is updated after write and contains headings."""
-
-    def test_index_created_on_create(self, tmp_path: Path) -> None:
-        store = _make_store(tmp_path)
-        resource = store.create_resource("outline", "o1")
-        index_content = (resource.path / ".index").read_text(encoding="utf-8")
-        # Empty index on fresh create
-        assert isinstance(index_content, str)
-
-    def test_index_updated_after_write(self, tmp_path: Path) -> None:
-        store = _make_store(tmp_path)
-        resource = store.create_resource("outline", "o2")
-        store.write(resource, "arc.md", "# Arc 1\n## Act 1\n\nContent here.")
-
-        index_content = (resource.path / ".index").read_text(encoding="utf-8")
-        assert "# arc.md" in index_content
-        assert "# Arc 1" in index_content
-        assert "## Act 1" in index_content
-
-    def test_index_includes_multiple_files(self, tmp_path: Path) -> None:
-        store = _make_store(tmp_path)
-        resource = store.create_resource("notes", "n1")
-        store.write(resource, "a.md", "# Heading A\nContent A")
-        store.write(resource, "b.md", "# Heading B\nContent B")
-
-        index_content = (resource.path / ".index").read_text(encoding="utf-8")
-        assert "# a.md" in index_content
-        assert "# b.md" in index_content
-        assert "# Heading A" in index_content
-        assert "# Heading B" in index_content
