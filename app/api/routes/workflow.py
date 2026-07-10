@@ -14,17 +14,13 @@ memory (dict[round_id, RoundStatus]) — simple, no DB"). The registry
 lives on ``app.state.round_registry`` and is created once by
 :func:`app.api.server.create_app`.
 
-The round itself is executed by
-:class:`~app.runtime.round_executor.RoundExecutor` (runtime layer). We
-load the default registry + workflow tree, build a
-:class:`~app.runtime.budget.BudgetTracker` (``max_iterations = 2 ×
-node_count`` per plan scope item 3) and a
-:class:`~app.runtime.runtime.Runtime` from the project's runtime config,
-then schedule ``RoundExecutor.execute_round`` as a background
-``asyncio.Task``. The task handle is stored alongside the status so
-``/stop`` can cancel it. The director agent is loaded from
-``director.yaml`` by :func:`~app.agents.registry.build_default_registry`
-— it is a plain :class:`~app.agents.agent.Agent`, not a dedicated
+The round itself is executed by the Runtime layer via the factory function
+:func:`~app.runtime.session.create_round_session` +
+:func:`~app.runtime.session.run_session`. The API layer does NOT directly
+construct ``Runtime``, ``BudgetTracker``, ``RoundExecutor``, or the
+agent registry — that is the Runtime layer's responsibility.
+The director agent is loaded from ``director.yaml`` inside the factory
+function; it is a plain :class:`~app.agents.agent.Agent`, not a dedicated
 orchestrator class.
 
 Per refactor_guide:298-300 one Turn = one Round = one git Commit. The
@@ -49,9 +45,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi import Path as FastPath
 
-from app.agents.registry import AgentRegistry, build_default_registry
-from app.runtime.runners.base import AgentRunner
-from app.runtime.runners.mock_runner import MockRunner
 from app.agents.workflow import WorkflowTree, load_workflow
 from app.api.schemas import (
     RoundResultSummary,
@@ -60,9 +53,10 @@ from app.api.schemas import (
     RunWorkflowRequest,
 )
 from app.project_paths import ProjectPathError, resolve_project_path
-from app.runtime.budget import BudgetTracker
-from app.runtime.round_executor import RoundExecutor, RoundResult
-from app.runtime.runtime import Runtime
+from app.runtime.round_executor import RoundResult
+from app.runtime.runners.base import AgentRunner
+from app.runtime.runners.mock_runner import MockRunner
+from app.runtime.session import RoundSession, create_round_session, run_session
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +66,7 @@ ProjectIdPath = Annotated[str, FastPath(..., description="System-controlled proj
 RoundIdPath = Annotated[str, FastPath(..., description="Round id returned by POST /run")]
 
 
-# ── In-memory round registry ──────────────────────────────────────────────
+# -- In-memory round registry -------------------------------------------------
 
 
 @dataclass
@@ -166,7 +160,7 @@ RootDep = Annotated[Path, Depends(_root_dep)]
 RegistryDep = Annotated[RoundRegistry, Depends(_get_registry)]
 
 
-# ── Runner factory hook (for tests) ──────────────────────────────────────
+# -- Runner factory hook (for tests) -----------------------------------------
 
 
 def _default_runner_factory() -> AgentRunner:
@@ -175,7 +169,7 @@ def _default_runner_factory() -> AgentRunner:
     The API layer uses the :class:`MockRunner` by default so that
     ``POST /run`` is safe to call without LLM credentials (per the
     task's "Mock the Director/agents for tests" constraint and the
-    guide's 傻瓜式 default — a round with the mock runner is a dry-run
+    guide's default — a round with the mock runner is a dry-run
     that exercises the full pipeline without spending tokens). The
     frontend RunView can switch to a real runner via a future config
     route; for now the runner is hard-wired to MockRunner.
@@ -187,7 +181,7 @@ def _default_runner_factory() -> AgentRunner:
 RUNNER_FACTORY = _default_runner_factory
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────
+# -- Helpers -----------------------------------------------------------------
 
 
 def _resolve_project(root: Path, project_id: str) -> Path:
@@ -213,38 +207,17 @@ def _load_workflow_tree(project_path: Path) -> WorkflowTree:
     return load_workflow(Path(__file__).resolve().parents[2] / "app" / "agents" / "default_workflow.yaml")
 
 
-async def _execute_round(
-    record: RoundRecord,
-    tree: WorkflowTree,
-    runtime: Runtime,
-    budget: BudgetTracker,
-    runner: AgentRunner,
-    registry: AgentRegistry,
-    context: str,
-    maximal_recursive_calling_depth: int,
-) -> None:
-    """Background coroutine: run a round via :class:`RoundExecutor`.
+async def _run_round_background(record: RoundRecord, session: RoundSession) -> None:
+    """Background coroutine: run a round via :func:`run_session` and sync to *record*.
 
-    Wrapped so any exception is captured into ``record.error`` and the
-    state transitions to ``"failed"`` rather than propagating (the
-    background task must never crash the event loop).
+    The :class:`RoundSession` accumulates state/logs/result/error; this
+    wrapper mirrors those into the :class:`RoundRecord` so the API layer's
+    in-memory registry stays in sync.
     """
     record.state = "running"
     record.logs.append(f"round {record.round_id} started for project {record.project_id}")
     try:
-        director = registry.get("director")  # loaded from director.yaml
-        executor = RoundExecutor(
-            runtime=runtime,
-            runner=runner,
-            registry=registry,
-            budget=budget,
-            maximal_recursive_calling_depth=maximal_recursive_calling_depth,
-        )
-        result = await executor.execute_round(
-            director=director,
-            tree=tree,
-            context=context,
-        )
+        result = await run_session(session)
         record.result = result
         record.state = "completed"
         record.logs.append(
@@ -263,7 +236,7 @@ async def _execute_round(
         logger.exception("workflow round %s failed", record.round_id)
 
 
-# ── Routes ───────────────────────────────────────────────────────────────
+# -- Routes ------------------------------------------------------------------
 
 
 @router.post(
@@ -295,40 +268,22 @@ async def run_workflow(
             ),
         )
 
-    # Load workflow tree + build registry (includes director from
-    # director.yaml) + runtime + budget.
     tree = _load_workflow_tree(project_path)
-    agent_registry = build_default_registry()
-    runtime = Runtime(
-        {
-            "timeout_seconds": 600,
-            "max_retries": 0,
-            "max_concurrent": 3,
-        }
+
+    session = create_round_session(
+        project_path=project_path,
+        project_id=project_id,
+        context=req.context,
+        tree=tree,
+        max_iterations=req.max_iterations,
+        maximal_recursive_calling_depth=req.maximal_recursive_calling_depth,
+        runner_factory=RUNNER_FACTORY,
     )
-    # Per plan scope item 3: default max agent calls = 2 × node count.
-    default_max_iterations = 2 * tree.node_count()
-    max_iterations = req.max_iterations if req.max_iterations is not None else default_max_iterations
-    budget = BudgetTracker(max_iterations=max_iterations, max_tokens=100_000, max_tool_calls=50)
-    runner = RUNNER_FACTORY()
 
     round_id = f"round_{uuid.uuid4().hex[:8]}"
     record = registry.create(round_id, project_id)
 
-    # Schedule the background round. asyncio.create_task requires a running
-    # loop, which FastAPI provides inside an async endpoint.
-    task = asyncio.create_task(
-        _execute_round(
-            record=record,
-            tree=tree,
-            runtime=runtime,
-            budget=budget,
-            runner=runner,
-            registry=agent_registry,
-            context=req.context,
-            maximal_recursive_calling_depth=req.maximal_recursive_calling_depth,
-        )
-    )
+    task = asyncio.create_task(_run_round_background(record, session))
     record.task = task
     return record.to_response()
 

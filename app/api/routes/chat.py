@@ -1,4 +1,4 @@
-"""/api/chat director chat (add/del/retry synced to rollback).
+﻿"""/api/chat director chat (add/del/retry synced to rollback).
 
 Endpoints
 ---------
@@ -31,15 +31,13 @@ entry AND any resource mutations the director's round produced.
 Director reply
 --------------
 The director reply is produced by running a chat-only round via
-:class:`~app.runtime.round_executor.RoundExecutor` + :class:`MockRunner`
-(the API's default runner — a real runner can be wired via the
-CHAT_RUNNER_FACTORY hook). The user's message becomes the ``context``
-passed to ``execute_round``. The director agent is loaded from
-``director.yaml`` by
-:func:`~app.agents.registry.build_default_registry` — it is a plain
-:class:`~app.agents.agent.Agent`, not a dedicated orchestrator class.
-This keeps the chat path LLM-credential-free by default (guide 傻瓜式
-dry-run) while still exercising the real runtime + budget pipeline.
+:func:`app.runtime.session.create_round_session` + :func:`run_session`
+(using :class:`MockRunner` by default — a real runner can be wired via
+the CHAT_RUNNER_FACTORY hook). The user's message becomes the
+``context`` passed to ``execute_round``. The director agent is loaded
+from ``director.yaml`` inside the factory function. This keeps the chat
+path LLM-credential-free by default (guide 傻瓜式 dry-run) while still
+exercising the real runtime + budget pipeline.
 """
 
 from __future__ import annotations
@@ -53,10 +51,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi import Path as FastPath
 
-from app.agents.agent import Agent
-from app.agents.registry import build_default_registry
-from app.runtime.runners.base import AgentRunner
-from app.runtime.runners.mock_runner import MockRunner
 from app.api.routes._message_store import MessageStore
 from app.api.schemas import (
     ChatMessage,
@@ -67,9 +61,9 @@ from app.api.schemas import (
 from app.data.project_repo import ProjectRepo
 from app.data.versioning import VersionManager
 from app.project_paths import ProjectPathError, resolve_project_path
-from app.runtime.budget import BudgetTracker
-from app.runtime.round_executor import RoundExecutor
-from app.runtime.runtime import Runtime
+from app.runtime.runners.base import AgentRunner
+from app.runtime.runners.mock_runner import MockRunner
+from app.runtime.session import create_round_session, run_session
 
 logger = logging.getLogger(__name__)
 
@@ -142,44 +136,25 @@ def _now_iso() -> str:
     return datetime.now(tz=UTC).isoformat()
 
 
-def _build_chat_director() -> Agent:
-    """Get the director agent from the default registry.
-
-    The director is loaded from ``director.yaml`` by
-    :func:`~app.agents.registry.build_default_registry` — it is a plain
-    :class:`~app.agents.agent.Agent`, not a dedicated orchestrator class.
-    """
-    registry = build_default_registry()
-    return registry.get("director")
-
-
 async def _produce_director_reply(user_content: str) -> str:
     """Run a chat-only director round and return the reply text.
 
-    Uses :class:`MockRunner` by default (via ``CHAT_RUNNER_FACTORY``) so
-    the chat path is LLM-credential-free. The director agent is obtained
-    from the default registry (loaded from ``director.yaml``). No
-    workflow tree is needed for chat — the director is the sole agent
-    called and its response text is the user-facing reply.
+    Uses :func:`create_round_session` + :func:`run_session` with
+    :class:`MockRunner` by default (via ``CHAT_RUNNER_FACTORY``) so the
+    chat path is LLM-credential-free. No workflow tree is needed for
+    chat — the director is the sole agent called and its response text
+    is the user-facing reply.
     """
-    registry = build_default_registry()
-    director = registry.get("director")
-    runtime = Runtime({"timeout_seconds": 30, "max_retries": 0, "max_concurrent": 1})
-    budget = BudgetTracker(max_iterations=4, max_tokens=10_000, max_tool_calls=10)
-    runner = CHAT_RUNNER_FACTORY()
-
-    executor = RoundExecutor(
-        runtime=runtime,
-        runner=runner,
-        registry=registry,
-        budget=budget,
-        maximal_recursive_calling_depth=1,
-    )
-    result = await executor.execute_round(
-        director=director,
-        tree=None,  # chat mode: no workflow tree
+    session = create_round_session(
+        project_path=Path("."),
+        project_id="chat",
         context=user_content,
+        tree=None,
+        max_iterations=None,
+        maximal_recursive_calling_depth=1,
+        runner_factory=CHAT_RUNNER_FACTORY,
     )
+    result = await run_session(session)
     return result.director_text or "[director unavailable]"
 
 
