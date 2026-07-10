@@ -33,9 +33,10 @@ if TYPE_CHECKING:
     from app.data.resource import Resource
 
 # Actions recognised by the permission hash. Per refactor_guide:77-80 the
-# only standardised tool verbs are ``read`` / ``search`` / ``write`` (guide:120-124),
-# and ``search`` is a read op (it does not mutate state), so the permission
-# hash itself only needs ``read`` and ``write`` keys.
+# only standardised tool verbs are ``read`` / ``write`` (and the file I/O
+# tools ``list_files`` / ``glob_files`` / ``grep_lines`` / ``read_lines``
+# are all read ops), so the permission hash itself only needs ``read`` and
+# ``write`` keys.
 _VALID_ACTIONS: frozenset[str] = frozenset({"read", "write"})
 
 
@@ -150,8 +151,8 @@ class ScopedTools:
     """Wraps a :class:`ResourceStore` with a :class:`Permission`, enforcing
     scope on every tool call.
 
-    Implements the three unified tools from refactor_guide:120-124
-    (``read`` / ``search`` / ``write``). Each method:
+    Implements the unified tools: ``read`` / ``write`` / ``list_files`` /
+    ``glob_files`` / ``grep_lines`` / ``read_lines``. Each method:
 
     1. Checks the agent's :class:`Permission` for the requested action and
        resource_type, raising :class:`PermissionDenied` on overreach.
@@ -160,9 +161,9 @@ class ScopedTools:
        the path resolution).
     3. Delegates the actual file operation to the wrapped ``ResourceStore``.
 
-    The interface intentionally mirrors what todo 16's unified tools layer
-    (``app/agents/tools.py``) will expose, so it can wrap or be wrapped by
-    that layer without churn.
+    The interface intentionally mirrors what the executor layer
+    (:mod:`app.runtime.tool_executor`) will expose, so it can wrap or be
+    wrapped by that layer without churn.
     """
 
     def __init__(self, store: ResourceStore, permission: Permission) -> None:
@@ -179,7 +180,7 @@ class ScopedTools:
         """The underlying ``ResourceStore`` (exposed for testing / wrapping)."""
         return self._store
 
-    # ── unified tools: read / search / write ────────────────────────────
+    # ── unified tools: read / write / list_files / glob_files / grep_lines / read_lines ──
 
     def read(self, resource_type: str, filename: str | None = None) -> str:
         """Read content from a resource, gated by the ``read`` permission.
@@ -200,16 +201,53 @@ class ScopedTools:
         resource = self._resolve(resource_type)
         return self._store.read(resource, filename)
 
-    def search(self, resource_type: str, query: str) -> list[tuple[str, int, str]]:
-        """Grep-style search within a resource, gated by the ``read`` permission.
-
-        ``search`` is a read op (it does not mutate state), so it checks the
-        ``read`` scope — there is no separate ``search`` action in the
-        permission hash.
+    def list_files(self, resource_type: str) -> list[str]:
+        """List content files in a resource, gated by the ``read`` permission.
 
         Args:
             resource_type: One of ``RESOURCE_TYPE_REGISTRY``.
-            query: Substring to search for (case-insensitive).
+
+        Returns:
+            A sorted list of content file names (excluding metadata files).
+
+        Raises:
+            PermissionDenied: If the permission does not cover ``read`` on
+                *resource_type*.
+        """
+        self._check("read", resource_type)
+        resource = self._resolve(resource_type)
+        return self._store.list_files(resource)
+
+    def glob_files(self, resource_type: str, pattern: str) -> list[str]:
+        """Glob-match content file names, gated by the ``read`` permission.
+
+        Args:
+            resource_type: One of ``RESOURCE_TYPE_REGISTRY``.
+            pattern: fnmatch glob pattern.
+
+        Returns:
+            A list of matching file names.
+
+        Raises:
+            PermissionDenied: If the permission does not cover ``read`` on
+                *resource_type*.
+        """
+        self._check("read", resource_type)
+        resource = self._resolve(resource_type)
+        return self._store.glob_files(resource, pattern)
+
+    def grep_lines(
+        self,
+        resource_type: str,
+        pattern: str,
+        filename: str | None = None,
+    ) -> list[tuple[str, int, str]]:
+        """Regex search content files, gated by the ``read`` permission.
+
+        Args:
+            resource_type: One of ``RESOURCE_TYPE_REGISTRY``.
+            pattern: Regex pattern (case-insensitive).
+            filename: Optional specific file to search; ``None`` searches all.
 
         Returns:
             A list of ``(filename, line_number, line_text)`` tuples.
@@ -220,7 +258,27 @@ class ScopedTools:
         """
         self._check("read", resource_type)
         resource = self._resolve(resource_type)
-        return self._store.search(resource, query)
+        return self._store.grep_lines(resource, pattern, filename)
+
+    def read_lines(self, resource_type: str, filename: str, start: int, end: int) -> str:
+        """Read a line range from a file, gated by the ``read`` permission.
+
+        Args:
+            resource_type: One of ``RESOURCE_TYPE_REGISTRY``.
+            filename: File name within the resource directory.
+            start: 1-based start line (inclusive).
+            end: 1-based end line (inclusive).
+
+        Returns:
+            The selected lines joined by ``\\n``.
+
+        Raises:
+            PermissionDenied: If the permission does not cover ``read`` on
+                *resource_type*.
+        """
+        self._check("read", resource_type)
+        resource = self._resolve(resource_type)
+        return self._store.read_lines(resource, filename, start, end)
 
     def write(self, resource_type: str, filename: str, content: str) -> bool:
         """Write content to a resource, gated by the ``write`` permission.

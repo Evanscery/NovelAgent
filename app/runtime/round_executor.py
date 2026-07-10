@@ -26,7 +26,7 @@ The loop::
         call_agent → resolve from registry, run sub-agent via runtime, store handle
         await      → return the stored sub-agent response text
         finalize   → end the round with reason "explicit_finalize"
-        read/search/write → dispatch to the director's ToolDispatcher (ScopedTools)
+        read/write/list_files/glob_files/grep_lines/read_lines → dispatch to the director's ToolDispatcher (ScopedTools)
         <unknown>  → record RejectedCallRecord("unknown_tool")
     ↓
     feed tool results back into the next director prompt
@@ -61,12 +61,12 @@ from typing import TYPE_CHECKING
 
 from app.agents.agent import Agent
 from app.agents.parser import parse_agent_to_prompt
+from app.agents.workflow import WorkflowTree, generate_flow_sequence
+from app.runtime.budget import BudgetTracker, FinalizeSignal
 from app.runtime.runners.base import (
     AgentRunner,
     ToolCall,
 )
-from app.agents.workflow import WorkflowTree, generate_flow_sequence
-from app.runtime.budget import BudgetTracker, FinalizeSignal
 from app.runtime.runtime import Runtime
 from app.runtime.tool_dispatcher import (
     ToolDispatcher,
@@ -79,8 +79,8 @@ if TYPE_CHECKING:
 
 
 # Director-specific tools the executor dispatches itself (not via
-# ToolDispatcher). The standard tools read/search/write go through the
-# director's ToolDispatcher (ScopedTools).
+# ToolDispatcher). The standard tools read/write/list_files/glob_files/
+# grep_lines/read_lines go through the director's ToolDispatcher (ScopedTools).
 _DIRECTOR_TOOLS: frozenset[str] = frozenset({"call_agent", "await", "finalize"})
 
 
@@ -147,7 +147,7 @@ class RoundExecutor:
 
     The executor is constructed once per round with the runtime
     infrastructure (runtime, runner, registry, budget), the director's
-    scoped tools (for read/search/write dispatch), and the recursion
+    scoped tools (for read/write/list_files/glob_files/grep_lines/read_lines dispatch), and the recursion
     depth limit. :meth:`execute_round` then drives the director in a
     tool-call loop: send prompt -> parse tool_calls -> dispatch ->
     feed back -> repeat until finalize.
@@ -163,7 +163,7 @@ class RoundExecutor:
                   iteration and per sub-agent call.
         director_tools: The director's :class:`ToolDispatcher` (wrapping
                   a :class:`ScopedTools` with the director's permission)
-                  for dispatching read/search/write tool calls. May be
+                  for dispatching read/write/list_files/glob_files/grep_lines/read_lines tool calls. May be
                   ``None`` for chat-only rounds where the director has
                   no data tools.
         maximal_recursive_calling_depth: The max allowed
@@ -475,8 +475,8 @@ class RoundExecutor:
         if name == "await":
             return self._dispatch_await(args, pending=pending, rejected_calls=rejected_calls)
 
-        # ── read / search / write: delegate to the director's tools ──
-        if name in ("read", "search", "write"):
+        # ── read / write / list_files / glob_files / grep_lines / read_lines: delegate to the director's tools ──
+        if name in ("read", "write", "list_files", "glob_files", "grep_lines", "read_lines"):
             return self._dispatch_standard_tool(
                 tool_call,
                 rejected_calls=rejected_calls,
@@ -624,7 +624,7 @@ class RoundExecutor:
         *,
         rejected_calls: list[RejectedCallRecord],
     ) -> _ToolDispatchOutcome:
-        """Dispatch read/search/write to the director's ToolDispatcher."""
+        """Dispatch standard tools to the director's ToolDispatcher."""
         if self._director_tools is None:
             rejected_calls.append(
                 RejectedCallRecord(

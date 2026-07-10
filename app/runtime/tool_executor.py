@@ -9,9 +9,10 @@ agent-facing schema definition.
 The executor holds a :class:`~app.runtime.permission.ScopedTools` (which
 wraps a :class:`~app.data.store.ResourceStore` + a
 :class:`~app.runtime.permission.Permission`) and exposes the unified tool
-methods. Permission enforcement happens *inside* the wrapped
-``ScopedTools`` — this layer adds no permission logic of its own, it only
-routes the call.
+methods: ``read``, ``write``, ``list_files``, ``glob_files``,
+``grep_lines``, ``read_lines``. Permission enforcement happens *inside*
+the wrapped ``ScopedTools`` — this layer adds no permission logic of its
+own, it only routes the call.
 """
 
 from __future__ import annotations
@@ -22,12 +23,11 @@ from app.runtime.permission import ScopedTools
 class ToolExecutor:
     """Agent-facing tool executor wrapping a :class:`ScopedTools`.
 
-    Per the todo 16 design choice (b): the executor holds a
-    :class:`~app.runtime.permission.ScopedTools` (which itself wraps a
-    :class:`~app.data.store.ResourceStore` + a
+    The executor holds a :class:`~app.runtime.permission.ScopedTools`
+    (which itself wraps a :class:`~app.data.store.ResourceStore` + a
     :class:`~app.runtime.permission.Permission`) and exposes the unified
-    tool methods. The runtime constructs one ``ToolExecutor`` per
-    agent per round, injecting the agent's scoped tools.
+    tool methods. The runtime constructs one ``ToolExecutor`` per agent
+    per round, injecting the agent's scoped tools.
 
     Permission enforcement happens *inside* the wrapped ``ScopedTools``
     (a :class:`~app.runtime.permission.PermissionDenied` raised there
@@ -35,9 +35,11 @@ class ToolExecutor:
     logic of its own — it is the agent-facing executor glue, not a
     re-implementation of the store or the permission gate.
 
-    The methods mirror :meth:`ScopedTools.read` / :meth:`ScopedTools.search`
-    / :meth:`ScopedTools.write` one-for-one so a ``ToolExecutor`` can be
-    used anywhere a ``ScopedTools`` Protocol is expected (e.g. the
+    The methods mirror :meth:`ScopedTools.read` / :meth:`ScopedTools.write`
+    / :meth:`ScopedTools.list_files` / :meth:`ScopedTools.glob_files` /
+    :meth:`ScopedTools.grep_lines` / :meth:`ScopedTools.read_lines`
+    one-for-one so a ``ToolExecutor`` can be used anywhere a ``ScopedTools``
+    Protocol is expected (e.g. the
     :class:`~app.runtime.tool_dispatcher.ToolDispatcher`).
     """
 
@@ -49,7 +51,7 @@ class ToolExecutor:
         """The wrapped permission-scoped tool surface (exposed for wrapping/testing)."""
         return self._scoped
 
-    # ── unified tools: read / search / write ────────────────────────────
+    # -- unified tools: read / write / list_files / glob_files / grep_lines / read_lines --
 
     def read(self, resource_type: str, filename: str | None = None) -> str:
         """Read content from a resource.
@@ -68,24 +70,79 @@ class ToolExecutor:
         """
         return self._scoped.read(resource_type, filename)
 
-    def search(self, resource_type: str, query: str) -> list[tuple[str, int, str]]:
-        """Grep-style search within a resource.
+    def list_files(self, resource_type: str) -> list[str]:
+        """List content files in a resource.
 
         Args:
             resource_type: One of ``RESOURCE_TYPE_REGISTRY``.
-            query: Substring to search for (case-insensitive).
+
+        Returns:
+            A sorted list of content file names (excluding metadata files).
+
+        Raises:
+            PermissionDenied: If the agent's permission does not cover
+                ``read`` on *resource_type* (propagated from ``ScopedTools``).
+        """
+        return self._scoped.list_files(resource_type)
+
+    def glob_files(self, resource_type: str, pattern: str) -> list[str]:
+        """Glob-match content file names in a resource.
+
+        Args:
+            resource_type: One of ``RESOURCE_TYPE_REGISTRY``.
+            pattern: fnmatch glob pattern.
+
+        Returns:
+            A list of matching file names.
+
+        Raises:
+            PermissionDenied: If the agent's permission does not cover
+                ``read`` on *resource_type* (propagated from ``ScopedTools``).
+        """
+        return self._scoped.glob_files(resource_type, pattern)
+
+    def grep_lines(
+        self,
+        resource_type: str,
+        pattern: str,
+        filename: str | None = None,
+    ) -> list[tuple[str, int, str]]:
+        """Regex search content files in a resource.
+
+        Args:
+            resource_type: One of ``RESOURCE_TYPE_REGISTRY``.
+            pattern: Regex pattern to match.
+            filename: Optional specific file to search; ``None`` searches all.
 
         Returns:
             A list of ``(filename, line_number, line_text)`` tuples.
 
         Raises:
             PermissionDenied: If the agent's permission does not cover
-                ``read`` on *resource_type* (search is a read op).
+                ``read`` on *resource_type* (propagated from ``ScopedTools``).
         """
-        return self._scoped.search(resource_type, query)
+        return self._scoped.grep_lines(resource_type, pattern, filename)
+
+    def read_lines(self, resource_type: str, filename: str, start: int, end: int) -> str:
+        """Read a line range from a file in a resource.
+
+        Args:
+            resource_type: One of ``RESOURCE_TYPE_REGISTRY``.
+            filename: File name within the resource directory.
+            start: 1-based start line (inclusive).
+            end: 1-based end line (inclusive).
+
+        Returns:
+            The selected lines joined by ``\\n``.
+
+        Raises:
+            PermissionDenied: If the agent's permission does not cover
+                ``read`` on *resource_type* (propagated from ``ScopedTools``).
+        """
+        return self._scoped.read_lines(resource_type, filename, start, end)
 
     def write(self, resource_type: str, filename: str, content: str) -> bool:
-        """Write content to a resource, maintaining the index.
+        """Write content to a resource.
 
         Args:
             resource_type: One of ``RESOURCE_TYPE_REGISTRY``.

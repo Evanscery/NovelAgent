@@ -1,9 +1,10 @@
-"""Parse agent tool-call requests, dispatch to read/search/write, reject overreach.
+"""Parse agent tool-call requests, dispatch to the unified tool set, reject overreach.
 
-Per ``docs/refactor_guide.md:112-123`` the standardized tool surface is exactly
-three tools — ``read(resource)``, ``search(resource)``, ``write(resource)``.
-The legacy ``readFile`` / ``readMemory`` / ``readLore`` style proliferation is
-forbidden; this dispatcher rejects any tool name outside the allowed set with
+Per ``docs/refactor_guide.md:112-123`` the standardized tool surface is a
+small set of unified tools — ``read``, ``write``, ``list_files``,
+``glob_files``, ``grep_lines``, ``read_lines``. The legacy ``readFile`` /
+``readMemory`` / ``readLore`` style proliferation is forbidden; this
+dispatcher rejects any tool name outside the allowed set with
 :class:`UnknownToolError`.
 
 The dispatcher does NOT enforce permission itself — that is the job of the
@@ -31,26 +32,34 @@ __all__ = [
 ]
 
 
-_ALLOWED_TOOLS: frozenset[str] = frozenset({"read", "search", "write"})
+_ALLOWED_TOOLS: frozenset[str] = frozenset(
+    {"read", "write", "list_files", "glob_files", "grep_lines", "read_lines"}
+)
 
 
 @runtime_checkable
 class ScopedTools(Protocol):
     """Permission-scoped tool surface the dispatcher delegates to.
 
-    todo 11 (``app/runtime/permission.py``) produces a concrete ``ScopedTools``
-    via ``inject_into_tools``. Until that lands, this Protocol lets the
-    dispatcher be built and tested against any object exposing the three
-    standardized methods. Permission enforcement happens *inside* these
-    methods — a scope violation raises ``PermissionDenied`` (defined by
-    todo 11) which propagates through :meth:`ToolDispatcher.dispatch`.
+    ``app/runtime/permission.py`` produces a concrete ``ScopedTools``
+    via ``inject_into_tools``. This Protocol lets the dispatcher be built
+    and tested against any object exposing the standardized methods.
+    Permission enforcement happens *inside* these methods — a scope
+    violation raises ``PermissionDenied`` which propagates through
+    :meth:`ToolDispatcher.dispatch`.
     """
 
     def read(self, **kwargs: object) -> object: ...
 
-    def search(self, **kwargs: object) -> object: ...
-
     def write(self, **kwargs: object) -> object: ...
+
+    def list_files(self, **kwargs: object) -> object: ...
+
+    def glob_files(self, **kwargs: object) -> object: ...
+
+    def grep_lines(self, **kwargs: object) -> object: ...
+
+    def read_lines(self, **kwargs: object) -> object: ...
 
 
 @dataclass(frozen=True)
@@ -60,8 +69,9 @@ class ToolResult:
     Attributes:
         ok:     ``True`` when the tool ran without raising.
         output: The value returned by the scoped tool (untyped — read returns
-                ``str``, search returns ``list[SearchHit]``, write returns
-                ``None``). Present when ``ok`` is ``True``.
+                ``str``, list_files/glob_files return ``list[str]``, grep_lines
+                returns ``list[tuple]``, read_lines returns ``str``, write
+                returns ``bool``). Present when ``ok`` is ``True``.
         error:  Human-readable error message. Empty when ``ok`` is ``True``.
     """
 
@@ -71,7 +81,7 @@ class ToolResult:
 
 
 class UnknownToolError(Exception):
-    """Raised when an agent calls a tool not in {read, search, write}."""
+    """Raised when an agent calls a tool not in the allowed set."""
 
 
 # ── parsing ────────────────────────────────────────────────────────────────
@@ -92,7 +102,7 @@ _JSON_TOOL_BLOCK_RE = re.compile(
 #
 #     TOOL: read(state)
 #     TOOL: write(short_goal, chapter_01.md, Once upon a time...)
-#     TOOL: search(resource_type=worldbook, query=tavern)
+#     TOOL: grep_lines(resource_type=worldbook, query=tavern)
 _TOOL_LINE_RE = re.compile(
     r"^\s*TOOL:\s*([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)\s*$",
     re.MULTILINE,
@@ -150,9 +160,9 @@ class ToolDispatcher:
 
     The dispatcher is the bridge between an agent's textual response and the
     permission-scoped tool surface. It owns *parsing* (two supported formats)
-    and *routing* (only ``read`` / ``search`` / ``write`` are allowed); it
-    owns neither permission enforcement (that is ``ScopedTools``' job) nor
-    tool implementation (that is ``app.agents.tools``' job, todo 16).
+    and *routing* (only the unified tools are allowed); it owns neither
+    permission enforcement (that is ``ScopedTools``' job) nor tool
+    implementation (that is ``app.runtime.tool_executor``'s job).
     """
 
     def __init__(self, scoped_tools: ScopedTools) -> None:
@@ -206,16 +216,16 @@ class ToolDispatcher:
         """Route ``tool_call`` to the matching scoped tool.
 
         Raises:
-            UnknownToolError: if ``tool_call.name`` is not one of
-                ``read`` / ``search`` / ``write``.
-            PermissionDenied: (defined by todo 11) propagated unchanged from
-                the scoped tool when the agent lacks permission.
+            UnknownToolError: if ``tool_call.name`` is not one of the
+                allowed unified tools.
+            PermissionDenied: propagated unchanged from the scoped tool
+                when the agent lacks permission.
         """
         name = tool_call.name
         if name not in _ALLOWED_TOOLS:
             msg = (
                 f"Unknown tool: {name}. "
-                "Only read/search/write are allowed."
+                "Only read/write/list_files/glob_files/grep_lines/read_lines are allowed."
             )
             raise UnknownToolError(msg)
 
