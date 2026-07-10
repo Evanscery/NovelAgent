@@ -1,26 +1,20 @@
-"""ResourceStore: CRUD resources, read/write/search file content, index maintenance, permission check."""
+"""ResourceStore: CRUD resources, read/write file content, file I/O tools.
+
+The data layer provides storage, access, and file I/O utilities for project
+resources. It owns no recall, maintenance, or permission logic — those
+concerns live in the Agent and Runtime layers.
+"""
 
 from __future__ import annotations
 
+import fnmatch
 import re
-from dataclasses import dataclass
 from pathlib import Path
 
 from .manifest import ResourceManifest, read_manifest, write_manifest
 from .properties import parse_properties_md, serialize_properties_md
 from .resource import Resource
 from .resource_types import get_resource_type
-
-
-@dataclass(frozen=True)
-class SearchHit:
-    """A single search result hit within a resource's content files."""
-
-    filename: str
-    line_number: int
-    matching_text: str
-    context: str
-
 
 _SKIP_FILES: frozenset[str] = frozenset({"properties.md", "manifest.json", ".index"})
 
@@ -29,15 +23,15 @@ class ResourceStore:
     """File-based CRUD and access layer for project resources.
 
     Operates within one project's ``resources/`` directory.
-    Provides no recall or maintenance logic — only storage, access, indexing,
-    and permission checking.
+    Provides storage, access, and file I/O utilities — no recall or
+    maintenance logic.
     """
 
     def __init__(self, project_root: Path) -> None:
         self._root = project_root.resolve()
         self._resources_dir = self._root / "resources"
 
-    # ── Public API ────────────────────────────────────────────────────
+    # -- Public API ---------------------------------------------------------
 
     def create_resource(self, resource_type: str, resource_id: str) -> Resource:
         """Scaffold a new resource directory and return a ``Resource`` instance.
@@ -66,11 +60,6 @@ class ResourceStore:
         manifest_path = res_dir / "manifest.json"
         if not manifest_path.exists():
             write_manifest(manifest_path, manifest)
-
-        # Init empty .index
-        index_path = res_dir / ".index"
-        if not index_path.exists():
-            index_path.write_text("", encoding="utf-8")
 
         return type_cls(
             id=resource_id,
@@ -109,44 +98,101 @@ class ResourceStore:
         return "\n\n".join(parts)
 
     def write(self, resource: Resource, filename: str, content: str) -> None:
-        """Write a file into the resource directory and update the index."""
+        """Write a file into the resource directory."""
         file_path = resource.path / filename
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
-        self._update_index(resource)
 
-    def search(self, resource: Resource, query: str) -> list[SearchHit]:
-        """Grep-style substring search across the resource's content files.
+    def list_files(self, resource: Resource) -> list[str]:
+        """Return all content file names in the resource directory, sorted.
 
-        Performs case-insensitive substring matching.  Returns hits with
-        filename, 1-based line number, the matching line text, and a context
-        window (previous line → matching line → next line, with line numbers).
+        Excludes metadata files (``properties.md``, ``manifest.json``,
+        ``.index``).
         """
-        hits: list[SearchHit] = []
-        pattern = re.compile(re.escape(query), re.IGNORECASE)
         res_dir = resource.path
-
+        names: list[str] = []
         for child in sorted(res_dir.iterdir()):
             if not child.is_file() or child.name in _SKIP_FILES:
                 continue
-            lines = child.read_text(encoding="utf-8").split("\n")
+            names.append(child.name)
+        return names
+
+    def glob_files(self, resource: Resource, pattern: str) -> list[str]:
+        """Return content file names matching *pattern* (fnmatch-style).
+
+        Excludes metadata files.
+        """
+        return [
+            name
+            for name in self.list_files(resource)
+            if fnmatch.fnmatch(name, pattern)
+        ]
+
+    def grep_lines(
+        self,
+        resource: Resource,
+        pattern: str,
+        filename: str | None = None,
+    ) -> list[tuple[str, int, str]]:
+        """Regex search across the resource's content files.
+
+        Args:
+            resource: The resource to search within.
+            pattern: A regular expression pattern to match.
+            filename: If given, only search that specific file; otherwise
+                search all content files.
+
+        Returns:
+            A list of ``(filename, line_number, line_text)`` tuples where
+            ``line_number`` is 1-based and ``line_text`` is the matching line
+            (without trailing newline). No context window is built.
+        """
+        regex = re.compile(pattern)
+        res_dir = resource.path
+        hits: list[tuple[str, int, str]] = []
+
+        if filename is not None:
+            targets = [res_dir / filename]
+        else:
+            targets = [
+                child
+                for child in sorted(res_dir.iterdir())
+                if child.is_file() and child.name not in _SKIP_FILES
+            ]
+
+        for path in targets:
+            if not path.exists():
+                continue
+            lines = path.read_text(encoding="utf-8").split("\n")
             for i, line_text in enumerate(lines, start=1):
-                if pattern.search(line_text):
-                    start = max(0, i - 2)
-                    end = min(len(lines), i + 1)
-                    ctx = "\n".join(
-                        f"{start + j + 1}: {lines[start + j]}"
-                        for j in range(end - start)
-                    )
-                    hits.append(
-                        SearchHit(
-                            filename=child.name,
-                            line_number=i,
-                            matching_text=line_text.strip(),
-                            context=ctx,
-                        )
-                    )
+                if regex.search(line_text):
+                    hits.append((path.name, i, line_text))
         return hits
+
+    def read_lines(
+        self,
+        resource: Resource,
+        filename: str,
+        start: int,
+        end: int,
+    ) -> str:
+        """Read a 1-based line range [start, end] from *filename*.
+
+        Args:
+            resource: The resource containing the file.
+            filename: The file name within the resource directory.
+            start: 1-based first line number (inclusive).
+            end: 1-based last line number (inclusive).
+
+        Returns:
+            The text of lines *start* through *end*, joined with ``\n``.
+        """
+        file_path = resource.path / filename
+        lines = file_path.read_text(encoding="utf-8").split("\n")
+        # 1-based to 0-based: start-1 .. end (slice end is exclusive)
+        clamped_start = max(0, start - 1)
+        clamped_end = min(len(lines), end)
+        return "\n".join(lines[clamped_start:clamped_end])
 
     def list_resources(self) -> list[Resource]:
         """List all resource instances in the project.
@@ -193,46 +239,3 @@ class ResourceStore:
                 )
             )
         return result
-
-    def permission_check(
-        self,
-        agent_permission: dict[str, list[str]],
-        resource: Resource,
-    ) -> bool:
-        """Check whether the agent's permission covers this resource.
-
-        *agent_permission* is a hash ``dict[str, list[str]]`` like
-        ``{'read': ['state', 'memory'], 'write': ['short_goal']}``.
-
-        Returns ``True`` if the resource's type name appears in **any** of
-        the permission value lists (both read and write are checked since
-        the intent is to verify general visibility).
-        """
-        resource_type = resource.type
-        for action in ("read", "write"):
-            if resource_type in agent_permission.get(action, []):
-                return True
-        return False
-
-    # ── Internal helpers ──────────────────────────────────────────────
-
-    def _update_index(self, resource: Resource) -> None:
-        """Rebuild the ``.index`` file inside the resource directory.
-
-        Scans every content file for markdown headings (``#`` … ``######``)
-        and writes the result as a symbol-search-friendly listing.
-        """
-        res_dir = resource.path
-        lines: list[str] = []
-        heading_re = re.compile(r"^(#{1,6})\s+(.+)")
-
-        for child in sorted(res_dir.iterdir()):
-            if not child.is_file() or child.name in _SKIP_FILES:
-                continue
-            lines.append(f"# {child.name}")
-            content = child.read_text(encoding="utf-8")
-            for text_line in content.split("\n"):
-                m = heading_re.match(text_line)
-                if m:
-                    lines.append(text_line)
-        (res_dir / ".index").write_text("\n".join(lines) + "\n", encoding="utf-8")

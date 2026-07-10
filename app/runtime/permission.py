@@ -31,7 +31,6 @@ from app.data.store import ResourceStore
 
 if TYPE_CHECKING:
     from app.data.resource import Resource
-    from app.data.store import SearchHit
 
 # Actions recognised by the permission hash. Per refactor_guide:77-80 the
 # only standardised tool verbs are ``read`` / ``search`` / ``write`` (guide:120-124),
@@ -201,7 +200,7 @@ class ScopedTools:
         resource = self._resolve(resource_type)
         return self._store.read(resource, filename)
 
-    def search(self, resource_type: str, query: str) -> list[SearchHit]:
+    def search(self, resource_type: str, query: str) -> list[tuple[str, int, str]]:
         """Grep-style search within a resource, gated by the ``read`` permission.
 
         ``search`` is a read op (it does not mutate state), so it checks the
@@ -213,7 +212,7 @@ class ScopedTools:
             query: Substring to search for (case-insensitive).
 
         Returns:
-            A list of :class:`~app.data.store.SearchHit`.
+            A list of ``(filename, line_number, line_text)`` tuples.
 
         Raises:
             PermissionDenied: If the permission does not cover ``read`` on

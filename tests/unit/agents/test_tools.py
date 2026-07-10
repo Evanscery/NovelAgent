@@ -23,7 +23,6 @@ import pytest
 from app.agents.tools import (
     TOOL_REGISTRY,
     TOOL_SCHEMAS,
-    ToolExecutor,
     get_tool_schema,
     list_available_tools,
 )
@@ -34,6 +33,7 @@ from app.runtime.permission import (
     inject_into_tools,
     parse_permission,
 )
+from app.runtime.tool_executor import ToolExecutor
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
