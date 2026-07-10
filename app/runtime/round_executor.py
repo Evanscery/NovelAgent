@@ -205,7 +205,8 @@ class RoundExecutor:
         sequence (so it knows the execution order) and the executor
         drives the tool-call loop: each director response's
         ``tool_calls`` are dispatched (``call_agent`` / ``await`` /
-        ``finalize`` / ``read`` / ``search`` / ``write``), results are
+        ``finalize`` / ``read`` / ``write`` / ``list_files`` / ``glob_files`` /
+        ``grep_lines`` / ``read_lines``), results are
         fed back, and the loop repeats until ``finalize`` or budget
         exhaustion.
 
@@ -445,7 +446,8 @@ class RoundExecutor:
         """Dispatch a single director tool call.
 
         Routes ``call_agent`` / ``await`` / ``finalize`` to the
-        executor's own handlers and ``read`` / ``search`` / ``write``
+        executor's own handlers and ``read`` / ``write`` / ``list_files`` /
+        ``glob_files`` / ``grep_lines`` / ``read_lines``
         to the director's :class:`ToolDispatcher`. Unknown tools are
         recorded as rejected calls.
 
