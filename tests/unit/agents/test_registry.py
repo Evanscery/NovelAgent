@@ -74,7 +74,7 @@ class TestAgentRegistry:
 
 
 class TestBuiltinAgents:
-    """load_builtin loads the 5 built-in agent yaml files."""
+    """load_builtin loads the 6 built-in agent yaml files (5 workflow + director)."""
 
     def test_load_builtin_loads_5_agents(self) -> None:
         registry = build_default_registry()
@@ -84,7 +84,8 @@ class TestBuiltinAgents:
         assert "writer" in names
         assert "critic" in names
         assert "maintainer" in names
-        assert len(names) == 5
+        assert len(names) == 6
+        assert set(names) == {"director", "recaller", "scout", "writer", "critic", "maintainer"}
 
     def test_maintainer_allow_recursive_is_false(self) -> None:
         """maintainer is the only built-in with allow_recursive=False."""
@@ -197,16 +198,18 @@ class TestDefaultWorkflow:
     def test_default_workflow_loads_to_valid_tree(self) -> None:
         tree = load_workflow()
         assert isinstance(tree, WorkflowTree)
-        assert len(tree.all_nodes) == 6
+        assert len(tree.all_nodes) == 5
 
     def test_default_workflow_has_all_agents(self) -> None:
         tree = load_workflow()
         agent_names = {n.agent_name for n in tree.all_nodes.values()}
-        assert agent_names == {"director", "recaller", "scout", "writer", "critic", "maintainer"}
+        assert agent_names == {"recaller", "scout", "writer", "critic", "maintainer"}
 
-    def test_default_workflow_root_is_director(self) -> None:
+    def test_default_workflow_root_is_not_director(self) -> None:
+        """Director is a system agent NOT in the workflow tree; the root is a workflow agent."""
         tree = load_workflow()
-        assert tree.root.agent_name == "director"
+        assert tree.root.agent_name != "director"
+        assert tree.root.agent_name in ("recaller", "scout")
         assert tree.root.depth == 0
 
     def test_default_workflow_writer_has_two_predecessors(self) -> None:
@@ -228,7 +231,7 @@ class TestBuildDefaultRegistry:
     def test_build_default_registry_works(self) -> None:
         registry = build_default_registry()
         assert isinstance(registry, AgentRegistry)
-        assert len(registry.list()) == 5
+        assert len(registry.list()) == 6
 
     def test_registry_and_workflow_together(self) -> None:
         """Every agent_name in the default workflow exists in the registry."""

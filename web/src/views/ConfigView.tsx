@@ -21,6 +21,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { z } from "zod";
 import { useConfigStore, PROVIDER_TYPES, MODEL_TIERS } from "@/stores/configStore";
 import { useProjectStore } from "@/stores/projectStore";
 import type {
@@ -61,8 +62,8 @@ function ProjectConfigSection({
     };
     if (expertMode) {
       try {
-        if (modelsYaml.trim()) data.models = JSON.parse(modelsYaml) as Record<string, unknown>;
-        if (runtimeYaml.trim()) data.runtime = JSON.parse(runtimeYaml) as Record<string, unknown>;
+        if (modelsYaml.trim()) data.models = z.record(z.unknown()).parse(JSON.parse(modelsYaml));
+        if (runtimeYaml.trim()) data.runtime = z.record(z.unknown()).parse(JSON.parse(runtimeYaml));
       } catch {
         window.alert("models/runtime 必须是合法 JSON 对象");
         return;
@@ -88,7 +89,11 @@ function ProjectConfigSection({
         <select
           className="field__select"
           value={projMode}
-          onChange={(e) => setProjMode(e.target.value as ProjectMode)}
+          onChange={(e) => {
+            const val = e.target.value;
+            if (val !== "novel" && val !== "rp") return;
+            setProjMode(val);
+          }}
         >
           <option value="novel">小说创作</option>
           <option value="rp">RP 互动</option>

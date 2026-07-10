@@ -263,7 +263,7 @@ import uvicorn
 from app.api.server import create_app
 # Patch the chat runner factory to use the real DirectRunner.
 from app.api.routes import chat as chat_routes
-from app.agents.runners.direct_runner import DirectRunner
+from app.runtime.runners.direct_runner import DirectRunner
 
 def _real_chat_runner_factory():
     model_config = {{

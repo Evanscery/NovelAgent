@@ -128,6 +128,22 @@ class ProjectRepo:
             out.append(self._build_commit_info(repo, commit))
         return out
 
+    def list_history_for_path(
+        self, path: str, max_count: int = 50
+    ) -> list[CommitInfo]:
+        """Return commits newest-first that touched files under *path*.
+
+        Uses ``git log -- <path>`` so only commits whose diff includes
+        at least one file under the given relative path are returned.
+        """
+        repo = git.Repo(str(self._project_root))
+        out: list[CommitInfo] = []
+        for commit in repo.iter_commits(
+            rev="HEAD", max_count=max_count, paths=path
+        ):
+            out.append(self._build_commit_info(repo, commit))
+        return out
+
     def current_commit(self) -> str | None:
         """Return the current ``HEAD`` SHA, or ``None`` if no commits exist."""
         try:

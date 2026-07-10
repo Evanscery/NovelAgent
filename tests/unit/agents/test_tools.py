@@ -432,7 +432,7 @@ class TestToolExecutorProtocol:
         tmp_path: Path,
     ) -> None:
         """A ToolExecutor can be handed to ToolDispatcher (which expects ScopedTools)."""
-        from app.agents.runners.base import ToolCall
+        from app.runtime.runners.base import ToolCall
         from app.runtime.tool_dispatcher import ToolDispatcher
 
         seeder = _make_executor(

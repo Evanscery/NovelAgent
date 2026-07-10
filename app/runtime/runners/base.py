@@ -68,12 +68,18 @@ class AgentResponse:
         usage:       Token accounting (zeros if the provider did not report).
         raw:         Provider-specific raw response payload, for debugging /
                      advanced consumers. Untyped on purpose.
+        suggestions: Optional list of suggestion strings from the agent (e.g.,
+                     recaller suggesting "need lore" for recursive recall per
+                     refactor_guide:240-255). Default empty. This is a DATA PIPE
+                     only — the Director does not yet parse or act on suggestions;
+                     the full recaller→director callback decision logic is future work.
     """
 
     text: str
     tool_calls: list[ToolCall] = field(default_factory=list)
     usage: TokenUsage = field(default_factory=lambda: TokenUsage(0, 0))
     raw: dict[str, object] = field(default_factory=dict)
+    suggestions: list[str] = field(default_factory=list)
 
 
 class AgentRunner(ABC):

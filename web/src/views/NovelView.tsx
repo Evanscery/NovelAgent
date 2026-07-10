@@ -78,7 +78,8 @@ export default function NovelView(): ReactNode {
 
   const html = useMemo(() => {
     if (!active) return "";
-    return marked.parse(active.content) as string;
+    const parsed = marked.parse(active.content);
+    return typeof parsed === "string" ? parsed : "";
   }, [active]);
 
   return (

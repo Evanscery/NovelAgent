@@ -203,7 +203,7 @@ def test_parse_falls_back_to_tool_line_when_json_block_malformed() -> None:
 def test_dispatch_read_returns_content() -> None:
     tools = MockScopedTools(read_return="THE-STATE-TEXT")
     dispatcher = ToolDispatcher(tools)
-    from app.agents.runners.base import ToolCall
+    from app.runtime.runners.base import ToolCall
 
     result = dispatcher.dispatch(ToolCall(name="read", args={"resource_type": "state"}))
     assert result.ok is True
@@ -215,7 +215,7 @@ def test_dispatch_read_returns_content() -> None:
 def test_dispatch_write_returns_success() -> None:
     tools = MockScopedTools()
     dispatcher = ToolDispatcher(tools)
-    from app.agents.runners.base import ToolCall
+    from app.runtime.runners.base import ToolCall
 
     result = dispatcher.dispatch(
         ToolCall(
@@ -245,7 +245,7 @@ def test_dispatch_search_returns_hits() -> None:
     hits = [{"filename": "worldbook.md", "line": 42}]
     tools = MockScopedTools(search_return=hits)
     dispatcher = ToolDispatcher(tools)
-    from app.agents.runners.base import ToolCall
+    from app.runtime.runners.base import ToolCall
 
     result = dispatcher.dispatch(
         ToolCall(name="search", args={"resource_type": "worldbook", "query": "tavern"})
@@ -259,7 +259,7 @@ def test_dispatch_search_returns_hits() -> None:
 
 def test_dispatch_readfile_raises_unknown_tool_error() -> None:
     dispatcher = ToolDispatcher(MockScopedTools())
-    from app.agents.runners.base import ToolCall
+    from app.runtime.runners.base import ToolCall
 
     with pytest.raises(UnknownToolError, match="Unknown tool: readFile"):
         dispatcher.dispatch(ToolCall(name="readFile", args={"resource": "memory"}))
@@ -267,7 +267,7 @@ def test_dispatch_readfile_raises_unknown_tool_error() -> None:
 
 def test_dispatch_readmemory_raises_unknown_tool_error() -> None:
     dispatcher = ToolDispatcher(MockScopedTools())
-    from app.agents.runners.base import ToolCall
+    from app.runtime.runners.base import ToolCall
 
     with pytest.raises(UnknownToolError, match="Unknown tool: readMemory"):
         dispatcher.dispatch(ToolCall(name="readMemory", args={"resource": "memory"}))
@@ -275,7 +275,7 @@ def test_dispatch_readmemory_raises_unknown_tool_error() -> None:
 
 def test_dispatch_readlore_raises_unknown_tool_error() -> None:
     dispatcher = ToolDispatcher(MockScopedTools())
-    from app.agents.runners.base import ToolCall
+    from app.runtime.runners.base import ToolCall
 
     with pytest.raises(UnknownToolError, match="Unknown tool: readLore"):
         dispatcher.dispatch(ToolCall(name="readLore", args={"resource": "lore"}))
@@ -283,7 +283,7 @@ def test_dispatch_readlore_raises_unknown_tool_error() -> None:
 
 def test_dispatch_unknown_tool_error_message_lists_allowed_tools() -> None:
     dispatcher = ToolDispatcher(MockScopedTools())
-    from app.agents.runners.base import ToolCall
+    from app.runtime.runners.base import ToolCall
 
     with pytest.raises(UnknownToolError) as exc_info:
         dispatcher.dispatch(ToolCall(name="delete", args={}))
@@ -296,7 +296,7 @@ def test_dispatch_unknown_tool_error_message_lists_allowed_tools() -> None:
 def test_dispatch_propagates_permission_denied_from_scoped_read() -> None:
     tools = MockScopedTools(denied={"read"})
     dispatcher = ToolDispatcher(tools)
-    from app.agents.runners.base import ToolCall
+    from app.runtime.runners.base import ToolCall
 
     with pytest.raises(PermissionDenied, match="read denied"):
         dispatcher.dispatch(ToolCall(name="read", args={"resource_type": "worldbook"}))
@@ -307,7 +307,7 @@ def test_dispatch_propagates_permission_denied_from_scoped_read() -> None:
 def test_dispatch_propagates_permission_denied_from_scoped_write() -> None:
     tools = MockScopedTools(denied={"write"})
     dispatcher = ToolDispatcher(tools)
-    from app.agents.runners.base import ToolCall
+    from app.runtime.runners.base import ToolCall
 
     with pytest.raises(PermissionDenied, match="write denied"):
         dispatcher.dispatch(
@@ -319,7 +319,7 @@ def test_dispatch_does_not_swallow_permission_denied_as_tool_result() -> None:
     """PermissionDenied must propagate, not become ToolResult(ok=False)."""
     tools = MockScopedTools(denied={"read"})
     dispatcher = ToolDispatcher(tools)
-    from app.agents.runners.base import ToolCall
+    from app.runtime.runners.base import ToolCall
 
     # If it were swallowed, dispatch would return a ToolResult instead of raising.
     result_or_exc: ToolResult | BaseException

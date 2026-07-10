@@ -1,4 +1,5 @@
 name: scout
+# scout covers the brainstormer role (refactor_guide:99) — provides inspiration and divergent thinking
 task: 提供灵感。基于大纲和创作笔记，发散思考可能的发展方向、冲突点、伏笔。
 input: 大纲、创作笔记、当前状态
 output: 灵感清单（发展方向、冲突点、伏笔候选）

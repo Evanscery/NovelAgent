@@ -160,3 +160,14 @@ class VersionManager:
 
     def list_history(self, max_count: int = 50) -> list[CommitInfo]:
         return self._repo.list_history(max_count=max_count)
+
+    def list_history_for_resource(
+        self, resource_type: str, max_count: int = 50
+    ) -> list[CommitInfo]:
+        """Return commits newest-first that touched ``resources/<resource_type>/``.
+
+        The per-type editor exposes this as its version-history list (per
+        refactor_guide:388-400 每类数据…历史版本查看).
+        """
+        rel = f"resources/{resource_type}"
+        return self._repo.list_history_for_path(rel, max_count=max_count)

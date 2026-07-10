@@ -19,8 +19,9 @@ ignored (and rejected if present, to make the contract explicit).
 from __future__ import annotations
 
 import shutil
+from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -208,7 +209,11 @@ def _rmtree_force(path: Path) -> None:
     import stat
     import time
 
-    def _on_error(func, target, exc_info):  # type: ignore[no-untyped-def]
+    def _on_error(
+        func: Callable[[str], None],
+        target: str,
+        exc_info: tuple[type[BaseException], BaseException, Any],
+    ) -> None:
         os.chmod(target, stat.S_IWRITE)
         func(target)
 

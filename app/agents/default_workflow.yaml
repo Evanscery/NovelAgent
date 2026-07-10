@@ -1,11 +1,13 @@
 # Built-in default workflow canvas — linear, no feedback.
-# Per refactor_guide:92-101: director (mandatory) + recaller/scout/writer/critic/maintainer.
-# This is a CanvasGraph (user-canvas format); parse_canvas_to_tree compiles it
-# into an expanded WorkflowTree at runtime.
+# The director is a system agent and does NOT appear as a node in the
+# workflow canvas. The runtime layer schedules the workflow agents below;
+# the director orchestrates them via call_agent/await.
+#
+# This is a CanvasGraph (user-canvas format); parse_canvas_to_tree compiles
+# it into an expanded WorkflowTree at runtime. Nodes with no incoming
+# wires (recaller, scout) become the roots of the compiled tree.
 #
 # Graph:
-#   root -> recaller
-#   root -> scout
 #   recaller -> writer
 #   scout -> writer
 #   writer -> critic
@@ -16,10 +18,6 @@
 # the other as a dependency). No feedback wires (repeat_count=1 everywhere).
 
 nodes:
-  - id: root
-    agent_name: director
-    description: 决策与任务分配
-    params: {}
   - id: recaller
     agent_name: recaller
     description: 召回数据
@@ -42,12 +40,6 @@ nodes:
     params: {}
 
 wires:
-  - from_node: root
-    to_node: recaller
-    repeat_count: 1
-  - from_node: root
-    to_node: scout
-    repeat_count: 1
   - from_node: recaller
     to_node: writer
     repeat_count: 1

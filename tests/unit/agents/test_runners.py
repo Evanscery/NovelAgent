@@ -10,13 +10,13 @@ from typing import Any
 import httpx
 import pytest
 
-from app.agents.runners.base import AgentResponse, TokenUsage, ToolCall
-from app.agents.runners.direct_runner import (
+from app.runtime.runners.base import AgentResponse, TokenUsage, ToolCall
+from app.runtime.runners.direct_runner import (
     DirectRunner,
     NonTransientError,
     TransientError,
 )
-from app.agents.runners.mock_runner import MockRunner
+from app.runtime.runners.mock_runner import MockRunner
 
 # ── StubAgent satisfying the RunnerAgent protocol ──────────────────────────
 
@@ -65,7 +65,7 @@ async def test_mock_runner_different_agent_different_output() -> None:
 def test_mock_runner_does_not_import_httpx() -> None:
     """MockRunner must not pull in httpx — it makes no network calls."""
     # Importing the module should not transitively import httpx.
-    import app.agents.runners.mock_runner as mod
+    import app.runtime.runners.mock_runner as mod
 
     assert not hasattr(mod, "httpx")
     # And the runner class source has no httpx references.
@@ -343,7 +343,7 @@ async def test_direct_runner_retries_on_500_then_succeeds(monkeypatch: pytest.Mo
             resp = await client.post(url, json=body, headers=headers)
         if resp.status_code == 200:
             return runner._parse_response(resp.json())
-        from app.agents.runners.direct_runner import _is_transient_status
+        from app.runtime.runners.direct_runner import _is_transient_status
 
         if _is_transient_status(resp.status_code):
             raise TransientError(f"HTTP {resp.status_code}")
@@ -385,7 +385,7 @@ async def test_direct_runner_raises_on_400(monkeypatch: pytest.MonkeyPatch) -> N
     async def patched_post(url: str, headers: dict[str, str], body: dict[str, object]) -> AgentResponse:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=10) as client:
             resp = await client.post(url, json=body, headers=headers)
-        from app.agents.runners.direct_runner import _is_transient_status
+        from app.runtime.runners.direct_runner import _is_transient_status
 
         if _is_transient_status(resp.status_code):
             raise TransientError(f"HTTP {resp.status_code}")
@@ -434,7 +434,7 @@ async def test_direct_runner_retries_on_429(monkeypatch: pytest.MonkeyPatch) -> 
             resp = await client.post(url, json=body, headers=headers)
         if resp.status_code == 200:
             return runner._parse_response(resp.json())
-        from app.agents.runners.direct_runner import _is_transient_status
+        from app.runtime.runners.direct_runner import _is_transient_status
 
         if _is_transient_status(resp.status_code):
             raise TransientError(f"HTTP {resp.status_code}")

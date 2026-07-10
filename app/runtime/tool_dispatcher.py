@@ -20,7 +20,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
-from app.agents.runners.base import ToolCall
+from app.runtime.runners.base import ToolCall
 
 __all__ = [
     "ScopedTools",
@@ -46,11 +46,11 @@ class ScopedTools(Protocol):
     todo 11) which propagates through :meth:`ToolDispatcher.dispatch`.
     """
 
-    def read(self, **kwargs: Any) -> Any: ...
+    def read(self, **kwargs: object) -> object: ...
 
-    def search(self, **kwargs: Any) -> Any: ...
+    def search(self, **kwargs: object) -> object: ...
 
-    def write(self, **kwargs: Any) -> Any: ...
+    def write(self, **kwargs: object) -> object: ...
 
 
 @dataclass(frozen=True)

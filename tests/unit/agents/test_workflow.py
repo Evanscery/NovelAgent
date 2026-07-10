@@ -411,15 +411,18 @@ class TestDefaultWorkflowFile:
     def test_default_workflow_loads(self) -> None:
         default_path = Path(__file__).resolve().parents[3] / "app" / "agents" / "default_workflow.yaml"
         tree = load_workflow(default_path)
-        # root, recaller, scout, writer, critic, maintainer = 6 nodes
-        assert tree.node_count() == 6
-        for name in ("root", "recaller", "scout", "writer", "critic", "maintainer"):
+        # recaller, scout, writer, critic, maintainer = 5 nodes
+        # (director is a system agent, NOT in the workflow tree)
+        assert tree.node_count() == 5
+        for name in ("recaller", "scout", "writer", "critic", "maintainer"):
             assert name in tree.all_nodes
 
     def test_default_workflow_root_depth_0(self) -> None:
         default_path = Path(__file__).resolve().parents[3] / "app" / "agents" / "default_workflow.yaml"
         tree = load_workflow(default_path)
-        assert tree.all_nodes["root"].depth == 0
+        # Director is NOT in the tree; root is a workflow agent (recaller or scout).
+        assert tree.root.agent_name in ("recaller", "scout")
+        assert tree.root.depth == 0
 
     def test_default_workflow_writer_has_dependency_ids(self) -> None:
         """writer has two predecessors (recaller, scout) → one dependency_id."""

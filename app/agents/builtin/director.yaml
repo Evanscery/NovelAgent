@@ -1,0 +1,13 @@
+name: director
+task: 决策与任务分配。理解工作流，逐步调度其他 agent，控制流程结束。使用 call_agent 调度子 agent，使用 await 等待结果，根据结果决定下一步。
+input: 当前状态、大纲、细纲、工作流执行顺序、上下文
+output: 调度决策与回合总结
+permission:
+  read: [state, outline, short_goal, notes]
+  write: []
+model: premium
+skills: []
+tools: [read, search, write, call_agent, await]
+head: null
+tail: null
+allow_recursive: true

@@ -17,13 +17,13 @@ Routers wired here: ``projects`` (todo 21), ``workflow`` + ``chat``
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from app.api.routes import chat as chat_routes
 from app.api.routes import config as config_routes
@@ -77,7 +77,7 @@ def create_app(root: Path | str) -> FastAPI:
     whitelist = list(server_cfg.ip_whitelist)
 
     @app.middleware("http")
-    async def _ip_whitelist(request: Request, call_next):  # type: ignore[no-untyped-def]
+    async def _ip_whitelist(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         if whitelist:
             client = request.client
             client_ip = client.host if client else None

@@ -19,6 +19,7 @@ import {
   type ApiClient,
   type PutAgentConfigRequest,
 } from "@/api/client";
+import { canvasGraphDataSchema } from "@/schemas/canvasGraph";
 
 /** User-canvas node (mirrors app/agents/workflow.py CanvasNode). */
 export interface CanvasNodeData {
@@ -188,10 +189,7 @@ export function createWorkflowStore(apiClient: ApiClient = defaultApi) {
     },
 
     importJson(raw) {
-      const parsed = JSON.parse(raw) as CanvasGraphData;
-      if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.wires)) {
-        throw new Error("Invalid canvas JSON: expected {nodes, wires}");
-      }
+      const parsed = canvasGraphDataSchema.parse(JSON.parse(raw));
       set({ canvas: parsed, dirty: true });
     },
 

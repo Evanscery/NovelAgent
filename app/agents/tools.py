@@ -31,7 +31,7 @@ unified tool surface.
 
 from __future__ import annotations
 
-from typing import Protocol, TypeAlias, runtime_checkable
+from typing import Protocol, TypeAlias, cast, runtime_checkable
 
 from app.data.store import SearchHit
 from app.runtime.permission import ScopedTools
@@ -228,7 +228,7 @@ class ToolExecutor:
 # allowed, and (b) look up the function for schema introspection. Actual
 # invocation goes through a concrete ``ToolExecutor`` instance.
 TOOL_REGISTRY: dict[str, ToolFunc] = {
-    "read": ToolExecutor.read,  # type: ignore[dict-item]
-    "search": ToolExecutor.search,  # type: ignore[dict-item]
-    "write": ToolExecutor.write,  # type: ignore[dict-item]
+    "read": cast(ToolFunc, ToolExecutor.read),
+    "search": cast(ToolFunc, ToolExecutor.search),
+    "write": cast(ToolFunc, ToolExecutor.write),
 }

@@ -51,14 +51,14 @@ from unittest.mock import patch
 
 import pytest
 
-from app.agents.runners.base import (
+from app.runtime.runners.base import (
     AgentResponse,
     AgentRunner,
     RunnerAgent,
     TokenUsage,
 )
-from app.agents.runners.direct_runner import DirectRunner
-from app.agents.runners.mock_runner import MockRunner
+from app.runtime.runners.direct_runner import DirectRunner
+from app.runtime.runners.mock_runner import MockRunner
 from app.data.project_repo import ProjectRepo
 from app.data.store import ResourceStore
 from app.runtime.budget import BudgetTracker, FinalizeSignal
@@ -252,7 +252,7 @@ class TestRuntimeIntegration:
         dispatcher = ToolDispatcher(cast(ScopedToolsProtocol, scoped))
 
         # read(state) through the JSON block format → real content.
-        from app.agents.runners.base import ToolCall
+        from app.runtime.runners.base import ToolCall
 
         result = dispatcher.dispatch(
             ToolCall(name="read", args={"resource_type": "state", "filename": "current.md"})

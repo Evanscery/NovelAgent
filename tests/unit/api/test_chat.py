@@ -23,7 +23,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from app.agents.runners.mock_runner import MockRunner
+from app.runtime.runners.mock_runner import MockRunner
 from app.api.routes import chat as chat_routes
 from app.api.server import create_app
 

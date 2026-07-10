@@ -7,7 +7,7 @@ from dataclasses import FrozenInstanceError, fields, replace
 import pytest
 
 from app.agents.agent import Agent
-from app.agents.runners.base import RunnerAgent
+from app.runtime.runners.base import RunnerAgent
 from app.runtime.permission import Permission, parse_permission
 
 

@@ -129,7 +129,11 @@ function CreateProjectModal({
             <select
               className="field__select"
               value={mode}
-              onChange={(e) => setMode(e.target.value as ProjectMode)}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val !== "novel" && val !== "rp") return;
+                setMode(val);
+              }}
             >
               <option value="novel">小说创作</option>
               <option value="rp">RP 互动</option>

@@ -20,7 +20,7 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from app.agents.runners.base import AgentResponse, AgentRunner, RunnerAgent
+from app.runtime.runners.base import AgentResponse, AgentRunner, RunnerAgent
 
 logger = logging.getLogger(__name__)
 

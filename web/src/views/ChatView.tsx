@@ -29,7 +29,8 @@ function escapeHtml(s: string): string {
 function renderMarkdown(content: string): string {
   // marked output is sanitized at the markdown level (no raw html passthrough
   // in default gfm). Escape any pre-existing html before parsing to be safe.
-  return marked.parse(escapeHtml(content)) as string;
+  const parsed = marked.parse(escapeHtml(content));
+  return typeof parsed === "string" ? parsed : "";
 }
 
 function MessageBubble({

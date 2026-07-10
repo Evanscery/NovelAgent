@@ -18,7 +18,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from app.agents.runners.mock_runner import MockRunner
+from app.runtime.runners.mock_runner import MockRunner
 from app.api.routes import workflow as workflow_routes
 from app.api.server import create_app
 
@@ -121,10 +121,13 @@ class TestRoundStatus:
         body = status_resp.json()  # type: ignore[possibly-undefined]
         assert body["round_id"] == round_id
         assert body["state"] == "completed"
-        # The default workflow tree has 6 nodes → all should complete under
-        # the default 2×6=12 max_iterations budget with the MockRunner.
+        # With the RoundExecutor tool-call loop, the MockRunner director
+        # returns plain text (no tool_calls) → the round completes after
+        # one director turn with completed_agents == ["director"] and
+        # finalize_reason == "all_nodes_done". A real LLM director would
+        # emit call_agent tool calls to dispatch the workflow's sub-agents.
         assert body["result"] is not None
-        assert len(body["result"]["completed_agents"]) == 6
+        assert "director" in body["result"]["completed_agents"]
         assert body["result"]["finalize_reason"] == "all_nodes_done"
         assert body["result"]["total_tokens"] > 0
         assert body["error"] is None

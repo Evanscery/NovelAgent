@@ -100,6 +100,8 @@ class ConfigLoader:
     The loader is anchored at a repo *root*. It reads the three global yaml
     files lazily (missing files yield empty defaults rather than errors, so
     a fresh checkout without ``config/models.yaml`` still boots).
+
+    Profile layer is a stub — not yet implemented. Reserved for future use.
     """
 
     def __init__(self, root: Path | str) -> None:

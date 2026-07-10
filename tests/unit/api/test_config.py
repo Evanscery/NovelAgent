@@ -5,7 +5,7 @@ Covers the todo-23 acceptance criteria for the config page:
 * PUT global config writes back to the yaml files.
 * GET project config returns the merged per-project config.
 * PUT project config updates display_name / mode / overrides.
-* GET project agents lists all 5 built-in agents.
+* GET project agents lists all 6 built-in agents (5 workflow + director).
 * PUT project agent edits one agent's attribute set (writer's model).
 """
 
@@ -201,14 +201,14 @@ class TestPutProjectConfig:
 
 
 class TestListProjectAgents:
-    def test_lists_5_builtin_agents(self, client: TestClient) -> None:
+    def test_lists_6_builtin_agents(self, client: TestClient) -> None:
         pid = _make_project(client)
         resp = client.get(f"/api/config/{pid}/agents")
         assert resp.status_code == 200, resp.text
         body = resp.json()
         names = {a["name"] for a in body}
-        # 5 built-in agents per refactor_guide:92-101.
-        assert names == {"recaller", "scout", "writer", "critic", "maintainer"}
+        # 6 built-in agents: 5 workflow agents + director (system agent).
+        assert names == {"director", "recaller", "scout", "writer", "critic", "maintainer"}
 
     def test_agent_has_all_attributes(self, client: TestClient) -> None:
         pid = _make_project(client)

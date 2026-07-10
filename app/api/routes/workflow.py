@@ -14,13 +14,18 @@ memory (dict[round_id, RoundStatus]) — simple, no DB"). The registry
 lives on ``app.state.round_registry`` and is created once by
 :func:`app.api.server.create_app`.
 
-The director round itself is executed by
-:meth:`app.agents.director.Director.run_round`. We load the default
-registry + workflow tree, build a :class:`~app.runtime.budget.BudgetTracker`
-(``max_iterations = 2 × node_count`` per plan scope item 3) and a
+The round itself is executed by
+:class:`~app.runtime.round_executor.RoundExecutor` (runtime layer). We
+load the default registry + workflow tree, build a
+:class:`~app.runtime.budget.BudgetTracker` (``max_iterations = 2 ×
+node_count`` per plan scope item 3) and a
 :class:`~app.runtime.runtime.Runtime` from the project's runtime config,
-then schedule ``run_round`` as a background ``asyncio.Task``. The task
-handle is stored alongside the status so ``/stop`` can cancel it.
+then schedule ``RoundExecutor.execute_round`` as a background
+``asyncio.Task``. The task handle is stored alongside the status so
+``/stop`` can cancel it. The director agent is loaded from
+``director.yaml`` by :func:`~app.agents.registry.build_default_registry`
+— it is a plain :class:`~app.agents.agent.Agent`, not a dedicated
+orchestrator class.
 
 Per refactor_guide:298-300 one Turn = one Round = one git Commit. The
 director's maintainer agent performs the actual data writes; the chat
@@ -44,10 +49,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi import Path as FastPath
 
-from app.agents.director import Director, RoundResult
 from app.agents.registry import AgentRegistry, build_default_registry
-from app.agents.runners.base import AgentRunner
-from app.agents.runners.mock_runner import MockRunner
+from app.runtime.runners.base import AgentRunner
+from app.runtime.runners.mock_runner import MockRunner
 from app.agents.workflow import WorkflowTree, load_workflow
 from app.api.schemas import (
     RoundResultSummary,
@@ -57,6 +61,7 @@ from app.api.schemas import (
 )
 from app.project_paths import ProjectPathError, resolve_project_path
 from app.runtime.budget import BudgetTracker
+from app.runtime.round_executor import RoundExecutor, RoundResult
 from app.runtime.runtime import Runtime
 
 logger = logging.getLogger(__name__)
@@ -208,54 +213,17 @@ def _load_workflow_tree(project_path: Path) -> WorkflowTree:
     return load_workflow(Path(__file__).resolve().parents[2] / "app" / "agents" / "default_workflow.yaml")
 
 
-def _build_director(registry: AgentRegistry) -> Director:
-    """Build a :class:`Director` from the registry.
-
-    The director agent is constructed inline (matching the pattern in
-    ``tests/integration/test_agent_layer.py``) because the built-in
-    registry (todo 19) only ships the 5 sub-agents — the director itself
-    is the mandatory main agent that orchestrates them. We build a
-    minimal director :class:`Agent` with a read permission broad enough
-    to assemble its prompt.
-    """
-    from app.agents.agent import Agent
-    from app.runtime.permission import parse_permission
-
-    director_agent = Agent(
-        id="director",
-        name="director",
-        task="决策与任务分配，调度其他 agent，控制流程结束。",
-        input="当前状态、大纲、细纲、工作流执行顺序",
-        output="调度决策与回合总结",
-        permission=parse_permission(
-            {"read": ["state", "outline", "short_goal", "notes"], "write": []}
-        ),
-        model=None,
-        skills=[],
-        tools=["read", "search", "write"],
-        head=None,
-        tail=None,
-        allow_recursive=True,
-    )
-    # Ensure all built-in sub-agents are registered (the director resolves
-    # node agents via name through the registry in a full system; here we
-    # use the director's _resolve_node_agent which clones the template, so
-    # the registry is loaded primarily for completeness / future use).
-    _ = registry  # registry loaded for side-effect of validation if needed
-    return Director(director_agent)
-
-
 async def _execute_round(
     record: RoundRecord,
     tree: WorkflowTree,
     runtime: Runtime,
     budget: BudgetTracker,
     runner: AgentRunner,
-    director: Director,
+    registry: AgentRegistry,
     context: str,
     maximal_recursive_calling_depth: int,
 ) -> None:
-    """Background coroutine: run the director round and update the record.
+    """Background coroutine: run a round via :class:`RoundExecutor`.
 
     Wrapped so any exception is captured into ``record.error`` and the
     state transitions to ``"failed"`` rather than propagating (the
@@ -264,13 +232,18 @@ async def _execute_round(
     record.state = "running"
     record.logs.append(f"round {record.round_id} started for project {record.project_id}")
     try:
-        result = await director.run_round(
-            tree=tree,
+        director = registry.get("director")  # loaded from director.yaml
+        executor = RoundExecutor(
             runtime=runtime,
-            budget=budget,
             runner=runner,
-            context=context,
+            registry=registry,
+            budget=budget,
             maximal_recursive_calling_depth=maximal_recursive_calling_depth,
+        )
+        result = await executor.execute_round(
+            director=director,
+            tree=tree,
+            context=context,
         )
         record.result = result
         record.state = "completed"
@@ -322,10 +295,10 @@ async def run_workflow(
             ),
         )
 
-    # Load workflow tree + build director + runtime + budget.
+    # Load workflow tree + build registry (includes director from
+    # director.yaml) + runtime + budget.
     tree = _load_workflow_tree(project_path)
     agent_registry = build_default_registry()
-    director = _build_director(agent_registry)
     runtime = Runtime(
         {
             "timeout_seconds": 600,
@@ -351,7 +324,7 @@ async def run_workflow(
             runtime=runtime,
             budget=budget,
             runner=runner,
-            director=director,
+            registry=agent_registry,
             context=req.context,
             maximal_recursive_calling_depth=req.maximal_recursive_calling_depth,
         )

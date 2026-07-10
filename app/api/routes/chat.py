@@ -30,18 +30,20 @@ entry AND any resource mutations the director's round produced.
 
 Director reply
 --------------
-The director reply is produced by running a single-agent round via
-:class:`~app.agents.director.Director` + :class:`MockRunner` (the API's
-default runner — a real runner can be wired via the RUNNER_FACTORY hook
-in ``app/api/routes/workflow.py``). The user's message becomes the
-``context`` passed to ``run_round``. This keeps the chat path
-LLM-credential-free by default (guide 傻瓜式 dry-run) while still
-exercising the real director + runtime + budget pipeline.
+The director reply is produced by running a chat-only round via
+:class:`~app.runtime.round_executor.RoundExecutor` + :class:`MockRunner`
+(the API's default runner — a real runner can be wired via the
+CHAT_RUNNER_FACTORY hook). The user's message becomes the ``context``
+passed to ``execute_round``. The director agent is loaded from
+``director.yaml`` by
+:func:`~app.agents.registry.build_default_registry` — it is a plain
+:class:`~app.agents.agent.Agent`, not a dedicated orchestrator class.
+This keeps the chat path LLM-credential-free by default (guide 傻瓜式
+dry-run) while still exercising the real runtime + budget pipeline.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -52,10 +54,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi import Path as FastPath
 
 from app.agents.agent import Agent
-from app.agents.director import Director
-from app.agents.runners.base import AgentRunner
-from app.agents.runners.mock_runner import MockRunner
-from app.agents.workflow import TreeNode, WorkflowTree
+from app.agents.registry import build_default_registry
+from app.runtime.runners.base import AgentRunner
+from app.runtime.runners.mock_runner import MockRunner
+from app.api.routes._message_store import MessageStore
 from app.api.schemas import (
     ChatMessage,
     ChatResponse,
@@ -66,7 +68,7 @@ from app.data.project_repo import ProjectRepo
 from app.data.versioning import VersionManager
 from app.project_paths import ProjectPathError, resolve_project_path
 from app.runtime.budget import BudgetTracker
-from app.runtime.permission import parse_permission
+from app.runtime.round_executor import RoundExecutor
 from app.runtime.runtime import Runtime
 
 logger = logging.getLogger(__name__)
@@ -76,7 +78,6 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 ProjectIdPath = Annotated[str, FastPath(..., description="System-controlled project id")]
 MessageIdPath = Annotated[str, FastPath(..., description="Chat message id (msg_<uuid8>)")]
 
-_CHAT_LOG_REL = Path("work") / "chat.jsonl"
 _INITIAL_TURN_ID = "0"  # written by scaffold_project (project_init.py)
 
 
@@ -128,53 +129,6 @@ def _resolve_project(root: Path, project_id: str) -> Path:
     return path
 
 
-def _chat_log_path(project_path: Path) -> Path:
-    """Return the chat log file path (``work/chat.jsonl``)."""
-    return project_path / _CHAT_LOG_REL
-
-
-def _ensure_chat_log(project_path: Path) -> Path:
-    """Ensure the chat log file exists (create ``work/`` + empty file)."""
-    log_path = _chat_log_path(project_path)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    if not log_path.exists():
-        log_path.write_text("", encoding="utf-8")
-    return log_path
-
-
-def _read_chat_log(project_path: Path) -> list[ChatMessage]:
-    """Read every line of the chat log into :class:`ChatMessage` objects.
-
-    Malformed lines are skipped (a corrupted log must not crash the GET).
-    """
-    log_path = _chat_log_path(project_path)
-    if not log_path.exists():
-        return []
-    messages: list[ChatMessage] = []
-    for line in log_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError:
-            logger.warning("chat log: skipping malformed line: %r", line[:80])
-            continue
-        try:
-            messages.append(ChatMessage.model_validate(obj))
-        except Exception:  # noqa: BLE001 — skip semantically invalid entries
-            logger.warning("chat log: skipping invalid message: %r", line[:80])
-            continue
-    return messages
-
-
-def _append_chat_message(log_path: Path, message: ChatMessage) -> None:
-    """Append a single :class:`ChatMessage` as one JSONL line."""
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    with log_path.open("a", encoding="utf-8") as fh:
-        fh.write(message.model_dump_json() + "\n")
-
-
 def _new_message_id() -> str:
     return f"msg_{uuid.uuid4().hex[:8]}"
 
@@ -188,87 +142,45 @@ def _now_iso() -> str:
     return datetime.now(tz=UTC).isoformat()
 
 
-def _build_chat_director() -> Director:
-    """Build a minimal :class:`Director` for the chat reply path.
+def _build_chat_director() -> Agent:
+    """Get the director agent from the default registry.
 
-    The chat director runs a 1-node "tree" (just the director itself) so
-    the user's message is turned into a single agent call that produces
-    the reply text. This mirrors the integration-test pattern but with a
-    root-only tree to keep the reply synchronous and cheap.
+    The director is loaded from ``director.yaml`` by
+    :func:`~app.agents.registry.build_default_registry` — it is a plain
+    :class:`~app.agents.agent.Agent`, not a dedicated orchestrator class.
     """
-    director_agent = Agent(
-        id="director",
-        name="director",
-        task="与用户对话，根据用户消息决策并回复。",
-        input="用户消息、当前项目状态摘要",
-        output="给用户的回复文本",
-        permission=parse_permission(
-            {"read": ["state", "outline", "short_goal", "notes"], "write": ["notes"]}
-        ),
-        model=None,
-        skills=[],
-        tools=["read", "search", "write"],
-        head=None,
-        tail=None,
-        allow_recursive=True,
-    )
-    return Director(director_agent)
-
-
-def _single_node_tree() -> WorkflowTree:
-    """Build a 1-node :class:`WorkflowTree` (root only) for chat replies."""
-    root = TreeNode(
-        id="root",
-        agent_name="director",
-        description="与用户对话",
-        params={},
-        depth=0,
-        parent_id=None,
-    )
-    return WorkflowTree(root=root, all_nodes={"root": root})
+    registry = build_default_registry()
+    return registry.get("director")
 
 
 async def _produce_director_reply(user_content: str) -> str:
-    """Run a 1-node director round and return the reply text.
+    """Run a chat-only director round and return the reply text.
 
     Uses :class:`MockRunner` by default (via ``CHAT_RUNNER_FACTORY``) so
-    the chat path is LLM-credential-free. The director's
-    :meth:`Director.run_round` records the agent response; we extract the
-    text from the first completed node by re-running the mock runner
-    directly (the round result only carries agent ids + token totals, not
-    the response text — so we call the runner again with the same prompt
-    to obtain the text deterministically).
+    the chat path is LLM-credential-free. The director agent is obtained
+    from the default registry (loaded from ``director.yaml``). No
+    workflow tree is needed for chat — the director is the sole agent
+    called and its response text is the user-facing reply.
     """
-    director = _build_chat_director()
-    tree = _single_node_tree()
+    registry = build_default_registry()
+    director = registry.get("director")
     runtime = Runtime({"timeout_seconds": 30, "max_retries": 0, "max_concurrent": 1})
     budget = BudgetTracker(max_iterations=4, max_tokens=10_000, max_tool_calls=10)
     runner = CHAT_RUNNER_FACTORY()
 
-    # Run the round (1 node → 1 agent call). The round result confirms the
-    # call succeeded; the actual reply text is produced by re-running the
-    # runner with the director's assembled prompt so it is deterministic
-    # for the MockRunner (same prompt → same output).
-    from app.agents.parser import parse_agent_to_prompt
-    from app.agents.workflow import generate_flow_sequence
-
-    result = await director.run_round(
-        tree=tree,
+    executor = RoundExecutor(
         runtime=runtime,
-        budget=budget,
         runner=runner,
-        context=user_content,
+        registry=registry,
+        budget=budget,
         maximal_recursive_calling_depth=1,
     )
-    if not result.completed_agents:
-        return "[director unavailable]"
-    # Re-derive the reply text from the director's prompt (deterministic
-    # for MockRunner; for a real runner this would be the last response
-    # captured by the runner — the API surface stays the same).
-    flow_seq = generate_flow_sequence(tree)
-    prompt = parse_agent_to_prompt(director.agent, context=user_content, flow_sequence=flow_seq)
-    response = await runner.run(director.agent, prompt)
-    return response.text
+    result = await executor.execute_round(
+        director=director,
+        tree=None,  # chat mode: no workflow tree
+        context=user_content,
+    )
+    return result.director_text or "[director unavailable]"
 
 
 def _commit_turn(project_path: Path, turn_id: str, message: str) -> None:
@@ -289,7 +201,7 @@ def _turn_id_before(project_path: Path, message: ChatMessage) -> str:
     If the message is the first in the log, the preceding turn is the
     project's initial Turn ``"0"`` (written by ``scaffold_project``).
     """
-    messages = _read_chat_log(project_path)
+    messages = MessageStore(project_path).read_messages()
     target_idx: int | None = None
     for idx, msg in enumerate(messages):
         if msg.message_id == message.message_id:
@@ -320,7 +232,7 @@ def _rewrite_chat_log_after_rollback(
     ``rolled_back_to_turn`` is gone. We re-read the log and return the
     surviving messages so the caller can return them to the client.
     """
-    surviving = _read_chat_log(project_path)
+    surviving = MessageStore(project_path).read_messages()
     # Defensive: ensure surviving messages all belong to turns <= the
     # rollback target. The git checkout already enforced this on disk;
     # this is a sanity check that the log matches.
@@ -338,7 +250,7 @@ def get_chat_history(
 ) -> list[ChatMessage]:
     """Return the full chat history for *project_id* (chronological)."""
     project_path = _resolve_project(root, project_id)
-    return _read_chat_log(project_path)
+    return MessageStore(project_path).read_messages()
 
 
 @router.post("/{project_id}", response_model=ChatResponse, status_code=status.HTTP_200_OK)
@@ -356,7 +268,8 @@ async def send_chat_message(
     4. Commit a Turn (so the exchange is versioned with the project).
     """
     project_path = _resolve_project(root, project_id)
-    log_path = _ensure_chat_log(project_path)
+    store = MessageStore(project_path)
+    store.ensure_log()
 
     turn_id = _new_turn_id()
     user_message = ChatMessage(
@@ -366,7 +279,7 @@ async def send_chat_message(
         turn_id=turn_id,
         timestamp=_now_iso(),
     )
-    _append_chat_message(log_path, user_message)
+    store.append_message(user_message)
 
     # Produce the director reply.
     try:
@@ -382,7 +295,7 @@ async def send_chat_message(
         turn_id=turn_id,
         timestamp=_now_iso(),
     )
-    _append_chat_message(log_path, director_message)
+    store.append_message(director_message)
 
     # Commit a Turn: both the chat log update and any resource writes the
     # director's round produced land in one atomic commit (guide:334-336).
@@ -408,7 +321,7 @@ def delete_chat_message(
     timeline is preserved on its old branch.
     """
     project_path = _resolve_project(root, project_id)
-    messages = _read_chat_log(project_path)
+    messages = MessageStore(project_path).read_messages()
     target: ChatMessage | None = None
     for msg in messages:
         if msg.message_id == message_id:
@@ -460,7 +373,7 @@ async def retry_chat_message(
     show the user that a new timeline was created.
     """
     project_path = _resolve_project(root, project_id)
-    messages = _read_chat_log(project_path)
+    messages = MessageStore(project_path).read_messages()
     target: ChatMessage | None = None
     for msg in messages:
         if msg.message_id == message_id:
@@ -493,7 +406,8 @@ async def retry_chat_message(
     # After rollback, the chat log on disk reflects the state at
     # rollback_to_turn. Re-seed the chat log file path + append a fresh
     # user message with the SAME content as the target (retry = re-send).
-    log_path = _ensure_chat_log(project_path)
+    store = MessageStore(project_path)
+    store.ensure_log()
     new_turn_id = _new_turn_id()
     new_user_message = ChatMessage(
         message_id=_new_message_id(),
@@ -502,7 +416,7 @@ async def retry_chat_message(
         turn_id=new_turn_id,
         timestamp=_now_iso(),
     )
-    _append_chat_message(log_path, new_user_message)
+    store.append_message(new_user_message)
 
     try:
         reply_text = await _produce_director_reply(target.content)
@@ -517,7 +431,7 @@ async def retry_chat_message(
         turn_id=new_turn_id,
         timestamp=_now_iso(),
     )
-    _append_chat_message(log_path, new_director_message)
+    store.append_message(new_director_message)
     _commit_turn(project_path, turn_id=new_turn_id, message=f"chat retry {new_turn_id}")
 
     return RetryResponse(

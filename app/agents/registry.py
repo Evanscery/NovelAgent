@@ -208,8 +208,11 @@ def build_default_registry() -> AgentRegistry:
     """Build a registry pre-loaded with all built-in agents.
 
     Returns:
-        An :class:`AgentRegistry` with the 5 built-in workflow agents
-        (recaller, scout, writer, critic, maintainer) registered.
+        An :class:`AgentRegistry` with the 6 built-in agents
+        (director, recaller, scout, writer, critic, maintainer)
+        registered. The director is a system agent; the other five are
+        the workflow agents that appear as nodes in the default workflow
+        canvas.
     """
     registry = AgentRegistry()
     registry.load_builtin()

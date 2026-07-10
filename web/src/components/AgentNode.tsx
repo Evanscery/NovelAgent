@@ -14,11 +14,16 @@ export interface AgentNodePayload extends Record<string, unknown> {
 }
 
 function AgentNodeComponent({ data, selected }: NodeProps): React.ReactNode {
-  const payload = data as AgentNodePayload;
   const stop = useCallback((e: React.MouseEvent) => {
     // Prevent the canvas drag-from-handle when clicking the body.
     e.stopPropagation();
   }, []);
+
+  if (!data || typeof data !== "object" || !("agentName" in data)) {
+    return null;
+  }
+  const payload = data as AgentNodePayload;
+
   return (
     <div
       className={`agent-node${selected ? " agent-node--selected" : ""}`}

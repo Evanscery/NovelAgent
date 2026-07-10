@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from app.agents.runners.base import AgentResponse, AgentRunner, RunnerAgent, TokenUsage
+from app.runtime.runners.base import AgentResponse, AgentRunner, RunnerAgent, TokenUsage
 from app.runtime.runtime import Runtime, TransientRunnerError
 
 # ── test doubles ─────────────────────────────────────────────────────────────

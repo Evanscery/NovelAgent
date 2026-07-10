@@ -31,7 +31,7 @@ Design notes:
   It raises :class:`NotImplementedError` to surface that the feature is not
   yet wired — callers must not be able to silently register a no-op.
 
-# noqa: SIZE_OK — todo 17 mandates all skill components (Skill protocol,
+# todo 17 mandates all skill components (Skill protocol,
 SkillResult, SkillRegistry, DiceRollSkill, preset extraction, MCP stub,
 build_default_registry) live in this single ``app/agents/skills.py`` per the
 plan's directory tree. Responsibilities are cohesive (the "skills
