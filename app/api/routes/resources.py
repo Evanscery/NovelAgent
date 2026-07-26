@@ -45,7 +45,7 @@ router = APIRouter(prefix="/api/resources", tags=["resources"])
 # API editor refuses to PUT them. GET still works.
 _READ_ONLY_TYPES: frozenset[str] = frozenset({"variables"})
 
-# Friendly Chinese titles for the 8 types.
+# Friendly Chinese titles for the resource types.
 _TYPE_TITLES: dict[str, str] = {
     "outline": "大纲",
     "short_goal": "细纲",
@@ -55,6 +55,7 @@ _TYPE_TITLES: dict[str, str] = {
     "facts": "客观事实",
     "character_memory": "人物记忆",
     "notes": "创作笔记",
+    "turn_summary": "轮次摘要",
 }
 
 _SUMMARY_MAX_CHARS = 240

@@ -53,8 +53,11 @@ Three recursion-control gates (plan scope item 3) are enforced on each
     recursive call is rejected with
     ``"agent does not allow recursive call"``.
 
-For chat mode (``tree=None``) no flow sequence is injected and only
-the director agent is called (single-shot, no tool-call loop).
+Chat mode (``tree=None``) runs the SAME tool-call loop with no flow
+sequence: the director may read/write resources or call sub-agents
+before answering, so an RP action really updates project state. The
+loop ends when the director answers in plain text (the reply), calls
+``finalize``, or exhausts the (chat-sized) budget.
 """
 
 from __future__ import annotations
@@ -132,6 +135,12 @@ class RoundResult:
                            chat rounds this is the user-facing reply; for
                            full workflow rounds it is the director's last
                            textual output before finalize.
+        final_text:        Chapter text carried by the ``finalize`` call
+                           (empty when the director finalized without one).
+                           The round session persists it under ``novels/``.
+        summary:           Turn summary carried by ``finalize``; archived
+                           into the ``turn_summary`` resource by the round
+                           session.
     """
 
     completed_agents: list[str] = field(default_factory=list)
@@ -140,6 +149,8 @@ class RoundResult:
     total_tokens: int = 0
     rejected_calls: list[RejectedCallRecord] = field(default_factory=list)
     director_text: str = ""
+    final_text: str = ""
+    summary: str = ""
 
 
 class RoundExecutor:
@@ -179,6 +190,10 @@ class RoundExecutor:
                   ``cur_depth - target_depth`` for a recursive
                   ``call_agent`` call. Default 1 (self-call Δ=0 and
                   parent-call Δ=1 allowed).
+        sub_agent_max_turns: Max model turns for one sub-agent call. A
+                  sub-agent's tool results are fed back to it (so a
+                  recaller can read→discover→read again and a maintainer
+                  can read→edit), bounded by this many turns.
     """
 
     def __init__(
@@ -191,6 +206,7 @@ class RoundExecutor:
         maximal_recursive_calling_depth: int = 1,
         prompts: PromptBuilder | None = None,
         tools_factory: Callable[[Agent], ToolDispatcher] | None = None,
+        sub_agent_max_turns: int = 3,
     ) -> None:
         self._runtime = runtime
         self._runner = runner
@@ -200,6 +216,7 @@ class RoundExecutor:
         self._max_depth = maximal_recursive_calling_depth
         self._prompts = prompts if prompts is not None else PromptBuilder(build_default_catalog())
         self._tools_factory = tools_factory
+        self._sub_agent_max_turns = max(1, sub_agent_max_turns)
 
     async def execute_round(
         self,
@@ -209,19 +226,18 @@ class RoundExecutor:
     ) -> RoundResult:
         """Execute one round of the workflow (or a chat-only round).
 
-        When *tree* is ``None`` (chat mode), only the director agent is
-        called once and its response text is captured in
-        :attr:`RoundResult.director_text`. No flow sequence is injected
-        and no tool-call loop runs.
+        Both modes drive the same tool-call loop: each director
+        response's ``tool_calls`` are dispatched (``call_agent`` /
+        ``await`` / ``finalize``, everything else via the director's
+        :class:`ToolDispatcher`), results are fed back, and the loop
+        repeats until the director answers in plain text, calls
+        ``finalize``, or exhausts the budget.
 
-        When *tree* is provided, the director's prompt receives the flow
-        sequence (so it knows the execution order) and the executor
-        drives the tool-call loop: each director response's
-        ``tool_calls`` are dispatched (``call_agent`` / ``await`` /
-        ``finalize``, everything else via the director's
-        :class:`ToolDispatcher`), results are
-        fed back, and the loop repeats until ``finalize`` or budget
-        exhaustion.
+        When *tree* is ``None`` (chat mode) no flow sequence is
+        injected; the director's final text is the user-facing reply in
+        :attr:`RoundResult.director_text`. When *tree* is provided the
+        director's prompt receives the flow sequence so it knows the
+        execution order.
 
         Args:
             director: The director :class:`Agent` (loaded from
@@ -234,18 +250,14 @@ class RoundExecutor:
         Returns:
             A :class:`RoundResult` summarizing the round.
         """
-        # Chat mode: no tree, no tool-call loop -- single director call.
-        if tree is None:
-            return await self._execute_chat_round(director, context)
+        return await self._execute_tool_loop(director, tree, context)
 
-        return await self._execute_workflow_round(director, tree, context)
+    # ── the tool-call loop (workflow and chat rounds) ──────────────────
 
-    # ── workflow round (tool-call loop) ────────────────────────────────
-
-    async def _execute_workflow_round(
+    async def _execute_tool_loop(
         self,
         director: Agent,
-        tree: WorkflowTree,
+        tree: WorkflowTree | None,
         context: str,
     ) -> RoundResult:
         """Drive the director in a tool-call loop until finalize/budget."""
@@ -255,8 +267,10 @@ class RoundExecutor:
         total_tokens = 0
         finalize_reason = "all_nodes_done"
         director_text = ""
+        final_text = ""
+        summary = ""
 
-        flow_seq = generate_flow_sequence(tree)
+        flow_seq = generate_flow_sequence(tree) if tree is not None else ""
         # Name -> definition_id mapping from the tree's nodes. The director
         # names call_agent targets by display name (what the flow sequence
         # shows), but display names are not identities: an imported
@@ -265,9 +279,10 @@ class RoundExecutor:
         # their name to that id, so dispatch is id-first and collisions
         # cannot reroute the call.
         name_to_definition_id: dict[str, str] = {}
-        for node in tree.all_nodes.values():
-            if node.kind == AGENT_KIND and node.definition_id is not None:
-                name_to_definition_id.setdefault(node.agent_name, node.definition_id)
+        if tree is not None:
+            for node in tree.all_nodes.values():
+                if node.kind == AGENT_KIND and node.definition_id is not None:
+                    name_to_definition_id.setdefault(node.agent_name, node.definition_id)
         # Per-agent-name call counts for the allow_recursive gate.
         call_counts: dict[str, int] = {}
         # Pending sub-agent results keyed by handle (call_agent returns a
@@ -379,6 +394,8 @@ class RoundExecutor:
 
                 if outcome.finalized:
                     finalize_reason = "explicit_finalize"
+                    final_text = outcome.final_text
+                    summary = outcome.summary
                     finalized = True
                     break
 
@@ -423,56 +440,8 @@ class RoundExecutor:
             total_tokens=total_tokens,
             rejected_calls=rejected_calls,
             director_text=director_text,
-        )
-
-    # ── chat round (single director call, no loop) ────────────────────
-
-    async def _execute_chat_round(
-        self,
-        director: Agent,
-        context: str,
-    ) -> RoundResult:
-        """Run a chat-only round: call only the director, capture its text.
-
-        No workflow tree, no flow sequence, no tool-call loop -- the
-        director is the sole agent and its response text is the
-        user-facing reply.
-        """
-        spec = self._prompts.build(director, user_text=context or None)
-        try:
-            response = await self._runtime.send_request(director, self._runner, spec)
-        except Exception as exc:  # noqa: BLE001 -- chat must not crash
-            return RoundResult(
-                completed_agents=[],
-                recursive_calls=[],
-                finalize_reason=f"runner_error: {type(exc).__name__}",
-                total_tokens=0,
-                rejected_calls=[
-                    RejectedCallRecord(
-                        agent="director",
-                        reason=f"runner_error: {type(exc).__name__}",
-                    )
-                ],
-                director_text="",
-            )
-
-        tokens = response.usage.prompt_tokens + response.usage.completion_tokens
-        try:
-            self._budget.consume(
-                tokens=tokens,
-                tool_calls=len(response.tool_calls),
-                iterations=1,
-            )
-        except FinalizeSignal:
-            pass  # budget exhausted after a single chat call -- acceptable
-
-        return RoundResult(
-            completed_agents=["director"],
-            recursive_calls=[],
-            finalize_reason="all_nodes_done",
-            total_tokens=tokens,
-            rejected_calls=[],
-            director_text=response.text,
+            final_text=final_text,
+            summary=summary,
         )
 
     # ── tool-call dispatch ─────────────────────────────────────────────
@@ -505,7 +474,13 @@ class RoundExecutor:
 
         # ── finalize: end the round ───────────────────────────────────
         if name == "finalize":
-            return _ToolDispatchOutcome(finalized=True)
+            final_text = args.get("final_text")
+            summary = args.get("summary")
+            return _ToolDispatchOutcome(
+                finalized=True,
+                final_text=final_text if isinstance(final_text, str) else "",
+                summary=summary if isinstance(summary, str) else "",
+            )
 
         # ── call_agent: run a sub-agent via the runtime ───────────────
         if name == "call_agent":
@@ -610,50 +585,77 @@ class RoundExecutor:
         # Run the sub-agent through the runtime, with its OWN system
         # prompt: the director's instruction is the user message, and the
         # sub-agent's task/permission/tools come from its own config.
-        sub_spec = self._prompts.build(target_agent, user_text=prompt)
-        try:
-            response = await self._runtime.send_request(
-                target_agent, self._runner, sub_spec
-            )
-        except TimeoutError:
-            rejected_calls.append(
-                RejectedCallRecord(agent=agent_name, reason="timeout")
-            )
-            return _ToolDispatchOutcome(
-                feedback=f"[call_agent {agent_name}] 拒绝: 超时",
-            )
-        except Exception as exc:  # noqa: BLE001 -- loop must not crash
-            rejected_calls.append(
-                RejectedCallRecord(
-                    agent=agent_name,
-                    reason=f"runner_error: {type(exc).__name__}",
-                )
-            )
-            return _ToolDispatchOutcome(
-                feedback=f"[call_agent {agent_name}] 拒绝: {type(exc).__name__}",
-            )
-
-        tokens = response.usage.prompt_tokens + response.usage.completion_tokens
-
-        # Execute the sub-agent's own tool calls through a dispatcher
-        # scoped by ITS permission — this is where a writer's declared
-        # write permission actually takes effect. The sub-agent is
-        # single-shot: tool results are surfaced to the director in the
-        # feedback, not fed back into the sub-agent (known limitation).
+        # The sub-agent gets a bounded tool loop of its own: its tool
+        # calls are dispatched through a dispatcher scoped by ITS
+        # permission (a writer's declared write permission takes effect)
+        # and the results are fed BACK to it — so a recaller can
+        # read→discover→read again and a maintainer can read→edit —
+        # up to ``sub_agent_max_turns`` model turns.
+        sub_tools = self._tools_factory(target_agent) if self._tools_factory is not None else None
+        sub_history: list[Message] = [Message(role="user", content=prompt)]
         tool_lines: list[str] = []
-        if response.tool_calls:
-            sub_tools = (
-                self._tools_factory(target_agent) if self._tools_factory is not None else None
-            )
-            for sub_tc in response.tool_calls:
-                tool_lines.append(
-                    self._dispatch_sub_agent_tool(
-                        sub_tc,
-                        agent_name=agent_name,
-                        sub_tools=sub_tools,
-                        rejected_calls=rejected_calls,
+        tokens = 0
+        sub_tool_call_count = 0
+        response = None
+        for turn in range(1, self._sub_agent_max_turns + 1):
+            sub_spec = self._prompts.build(target_agent, history=sub_history)
+            try:
+                response = await self._runtime.send_request(
+                    target_agent, self._runner, sub_spec
+                )
+            except TimeoutError:
+                rejected_calls.append(
+                    RejectedCallRecord(agent=agent_name, reason="timeout")
+                )
+                return _ToolDispatchOutcome(
+                    tokens=tokens,
+                    feedback=f"[call_agent {agent_name}] 拒绝: 超时",
+                )
+            except Exception as exc:  # noqa: BLE001 -- loop must not crash
+                rejected_calls.append(
+                    RejectedCallRecord(
+                        agent=agent_name,
+                        reason=f"runner_error: {type(exc).__name__}",
                     )
                 )
+                return _ToolDispatchOutcome(
+                    tokens=tokens,
+                    feedback=f"[call_agent {agent_name}] 拒绝: {type(exc).__name__}",
+                )
+
+            tokens += response.usage.prompt_tokens + response.usage.completion_tokens
+            sub_calls = [
+                tc if tc.id else replace(tc, id=f"sub_{turn}_{i}")
+                for i, tc in enumerate(response.tool_calls, start=1)
+            ]
+            sub_history.append(
+                Message(
+                    role="assistant",
+                    content=response.text,
+                    tool_calls=tuple(sub_calls) or None,
+                )
+            )
+            if not sub_calls:
+                break
+            sub_tool_call_count += len(sub_calls)
+            for sub_tc in sub_calls:
+                line = self._dispatch_sub_agent_tool(
+                    sub_tc,
+                    agent_name=agent_name,
+                    sub_tools=sub_tools,
+                    rejected_calls=rejected_calls,
+                )
+                tool_lines.append(line)
+                sub_history.append(
+                    Message(
+                        role="tool",
+                        content=line,
+                        tool_call_id=sub_tc.id,
+                        name=sub_tc.name,
+                    )
+                )
+
+        assert response is not None  # loop runs at least once
 
         # Store the result under a handle so a later `await` can retrieve it.
         handle = f"task_{len(pending) + 1}"
@@ -666,7 +668,7 @@ class RoundExecutor:
         return _ToolDispatchOutcome(
             completed_agent=agent_name,
             tokens=tokens,
-            tool_calls=len(response.tool_calls),
+            tool_calls=sub_tool_call_count,
             feedback=feedback,
             handle=handle,
         )
@@ -790,6 +792,8 @@ class _ToolDispatchOutcome:
     tool_calls: int = 0
     feedback: str = ""
     handle: str | None = None
+    final_text: str = ""
+    summary: str = ""
 
 
 __all__ = [

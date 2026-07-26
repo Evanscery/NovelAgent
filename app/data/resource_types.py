@@ -117,6 +117,24 @@ class Notes(Resource):
         )
 
 
+class TurnSummary(Resource):
+    """轮次摘要 — 每轮正文的归档摘要 (每轮追加, 增量维护).
+
+    设计的多级索引召回第一级：每轮 workflow 收尾把本轮 summary 写入
+    ``turn_<id>.md``。summary 可被 recaller 全量读取，用于定位需要
+    全文召回的轮次（正文本体在 ``novels/``，第二级召回）。
+    """
+
+    @classmethod
+    def default_properties(cls) -> ResourceProperties:
+        return ResourceProperties(
+            存储方式="每轮一个 turn_<id>.md 文件",
+            召回策略="多级索引第一级：summary 全量进入 recaller 上下文，定位后按轮次召回正文全文",
+            维护策略="每轮追加，增量维护，不覆盖历史轮次",
+            版本策略="随轮次 commit 版本化",
+        )
+
+
 # ── Registry ──────────────────────────────────────────────────────────
 
 RESOURCE_TYPE_REGISTRY: dict[str, type[Resource]] = {
@@ -128,6 +146,7 @@ RESOURCE_TYPE_REGISTRY: dict[str, type[Resource]] = {
     "facts": Facts,
     "character_memory": CharacterMemory,
     "notes": Notes,
+    "turn_summary": TurnSummary,
 }
 
 

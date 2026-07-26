@@ -79,7 +79,9 @@ class ProjectRepo:
 
             Turn <turn_id>: <message>
 
-        Returns the commit SHA.
+        Returns the commit SHA. A turn with no data changes still commits
+        (empty commit): every round advances the Turn history — the commit
+        IS the version unit, not the diff.
         """
         repo = git.Repo(str(self._project_root))
         repo.git.add("-A")

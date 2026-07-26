@@ -164,8 +164,18 @@ BUILTIN_TOOL_SCHEMAS: dict[str, ToolSchema] = {
         ),
         _schema(
             "finalize",
-            "结束本轮执行。",
-            {"reason": {"type": ["string", "null"], "description": "结束原因（可选）"}},
+            "结束本轮执行。工作流轮应携带本轮正文与摘要：final_text 落盘为新章节，summary 归档为轮次摘要。",
+            {
+                "reason": {"type": ["string", "null"], "description": "结束原因（可选）"},
+                "final_text": {
+                    "type": ["string", "null"],
+                    "description": "本轮产出的章节正文（工作流轮必填；落盘 novels/）",
+                },
+                "summary": {
+                    "type": ["string", "null"],
+                    "description": "本轮摘要（归档到 turn_summary 资源，供后续召回定位）",
+                },
+            },
             [],
         ),
         # -- runtime tools ------------------------------------------------

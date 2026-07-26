@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +27,7 @@ from app.agents.registry import AgentRegistry, build_project_registry
 from app.agents.tree_model import AGENT_KIND
 from app.agents.workflow import WorkflowTree
 from app.config_loader import RuntimeConfig
+from app.data.project_repo import ProjectRepo
 from app.data.store import ResourceStore
 from app.runtime.budget import BudgetTracker
 from app.runtime.mcp import load_mcp_tools
@@ -38,6 +40,7 @@ from app.runtime.runtime import Runtime
 from app.runtime.tool_catalog import build_default_catalog
 from app.runtime.tool_dispatcher import ScopedTools as ScopedToolsProtocol
 from app.runtime.tool_dispatcher import ToolDispatcher
+from app.runtime.transaction import AtomicTurn
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +68,7 @@ class RoundSession:
 
     round_id: str
     project_id: str
+    project_path: Path
     executor: RoundExecutor
     budget: BudgetTracker
     registry: AgentRegistry
@@ -204,6 +208,7 @@ def create_round_session(
         maximal_recursive_calling_depth=depth,
         prompts=prompts,
         tools_factory=tools_factory,
+        sub_agent_max_turns=int(str(workflow_policy.get("sub_agent_max_turns", 3))),
     )
 
     # time.monotonic() rather than the event-loop clock: this factory is
@@ -213,6 +218,7 @@ def create_round_session(
     return RoundSession(
         round_id=round_id,
         project_id=project_id,
+        project_path=project_path,
         executor=executor,
         budget=budget,
         registry=agent_registry,
@@ -222,8 +228,76 @@ def create_round_session(
     )
 
 
+class _RoundFailed(Exception):
+    """Raised inside the AtomicTurn body to trigger a working-tree rollback.
+
+    Carries the :class:`RoundResult` so the session can still report what
+    happened after the partial writes are discarded.
+    """
+
+    def __init__(self, result: RoundResult) -> None:
+        super().__init__(result.finalize_reason)
+        self.result = result
+
+
+def _persist_round_output(project_path: Path, result: RoundResult, turn_id: str) -> None:
+    """Write the round's chapter and summary to their design homes.
+
+    ``final_text`` becomes the next ``novels/chapter_NNN.txt`` (what the
+    小说查看器 reads); ``summary`` is archived as
+    ``resources/turn_summary/turn_<id>.md`` (multi-level recall index,
+    level one). Both are inside the AtomicTurn, so they commit with the
+    round's other writes.
+    """
+    if result.final_text:
+        novels = project_path / "novels"
+        novels.mkdir(parents=True, exist_ok=True)
+        next_index = len(list(novels.glob("chapter_*.txt"))) + 1
+        (novels / f"chapter_{next_index:03d}.txt").write_text(
+            result.final_text, encoding="utf-8"
+        )
+    if result.summary:
+        store = ResourceStore(project_path)
+        resource = store.create_resource("turn_summary", "turn_summary")
+        store.write(resource, f"turn_{turn_id}.md", result.summary)
+
+
+async def _execute_workflow_with_commit(session: RoundSession, director: Agent) -> RoundResult:
+    """Run a workflow round as an atomic Turn: all writes commit or none.
+
+    The round executes inside an :class:`AtomicTurn`; on success the
+    chapter/summary are persisted and everything commits as one
+    ``Turn <id>:`` commit (每轮 = 1 commit). On runner failure the
+    working tree is restored to the pre-round snapshot and
+    :class:`_RoundFailed` propagates.
+
+    Projects without a git repository (ad-hoc unit fixtures) run without
+    the transaction — production workspaces are always scaffolded with
+    one (``project_init.py``).
+    """
+    if not (session.project_path / ".git").exists():
+        return await session.executor.execute_round(
+            director=director, tree=session.tree, context=session.context
+        )
+
+    repo = ProjectRepo(session.project_path)
+    turn_id = uuid.uuid4().hex[:8]
+    async with AtomicTurn(repo, turn_id, "workflow round"):
+        result = await session.executor.execute_round(
+            director=director, tree=session.tree, context=session.context
+        )
+        if result.finalize_reason == "runner_error":
+            raise _RoundFailed(result)
+        _persist_round_output(session.project_path, result, turn_id)
+    return result
+
+
 async def run_session(session: RoundSession) -> RoundResult:
     """Execute the round described by *session* and update its state.
+
+    Workflow rounds (``tree`` set) run inside an atomic Turn and commit
+    on success (see :func:`_execute_workflow_with_commit`); chat rounds
+    are committed by the chat route together with the message log.
 
     Returns the :class:`RoundResult`. On exception, sets ``session.state``
     to ``"failed"`` and re-raises so the caller (e.g. an ``asyncio.Task``)
@@ -233,11 +307,14 @@ async def run_session(session: RoundSession) -> RoundResult:
     session.logs.append(f"round {session.round_id} started for project {session.project_id}")
     try:
         director = session.registry.get("director")
-        result = await session.executor.execute_round(
-            director=director,
-            tree=session.tree,
-            context=session.context,
-        )
+        if session.tree is not None:
+            result = await _execute_workflow_with_commit(session, director)
+        else:
+            result = await session.executor.execute_round(
+                director=director,
+                tree=session.tree,
+                context=session.context,
+            )
         session.result = result
         session.state = "completed"
         session.logs.append(
@@ -245,6 +322,14 @@ async def run_session(session: RoundSession) -> RoundResult:
             f"{len(result.completed_agents)} agents, reason={result.finalize_reason}"
         )
         return result
+    except _RoundFailed as fail:
+        session.result = fail.result
+        session.state = "failed"
+        session.error = "runner_error: round writes rolled back"
+        session.logs.append(
+            f"round {session.round_id} failed (runner_error); working tree restored"
+        )
+        return fail.result
     except asyncio.CancelledError:
         session.state = "stopped"
         session.error = "round stopped by user"

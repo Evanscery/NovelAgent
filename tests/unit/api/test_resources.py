@@ -54,7 +54,7 @@ def _make_project(client: TestClient, display_name: str = "Test") -> str:
 
 
 class TestListResources:
-    def test_lists_all_8_types(self, client: TestClient) -> None:
+    def test_lists_all_registered_types(self, client: TestClient) -> None:
         pid = _make_project(client)
         resp = client.get(f"/api/resources/{pid}")
         assert resp.status_code == 200, resp.text
@@ -62,7 +62,7 @@ class TestListResources:
         assert body["project_id"] == pid
         types = {r["type"] for r in body["resources"]}
         assert types == set(RESOURCE_TYPE_REGISTRY)
-        assert len(body["resources"]) == 8
+        assert len(body["resources"]) == len(RESOURCE_TYPE_REGISTRY)
 
     def test_entries_have_titles(self, client: TestClient) -> None:
         pid = _make_project(client)

@@ -134,7 +134,15 @@ class MockRunner(AgentRunner):
         request: RequestSpec,
         usage: TokenUsage,
     ) -> AgentResponse | None:
-        """Scripted working sub-agent: write once into the first writable resource."""
+        """Scripted working sub-agent: write once into the first writable resource.
+
+        With the sub-agent tool loop, this runner is called again with the
+        write's tool result in history — any prior tool message means the
+        scripted write already happened, so the mock answers in plain text
+        and lets the sub-agent turn end.
+        """
+        if any(message.role == "tool" for message in request.messages):
+            return None
         match = _WRITE_PERM_RE.search(request.system)
         if match is None:
             return None

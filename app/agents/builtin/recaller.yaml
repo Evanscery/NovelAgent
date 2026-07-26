@@ -4,7 +4,7 @@ task: 召回数据。根据当前场景需要，读取相关资源，定位并�
 input: 当前状态、短期目标、世界书摘要、角色记忆索引
 output: 召回结果文本（含相关正文片段、记忆、世界书条目）
 permission:
-  read: [state, short_goal, character_memory, worldbook, facts, notes]
+  read: [state, short_goal, character_memory, worldbook, facts, notes, turn_summary]
   write: []
 model: standard
 tools: [read, list_files, glob_files, grep_lines, read_lines]

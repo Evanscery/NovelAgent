@@ -217,7 +217,7 @@ class TestResourcesFlow:
         body = resp.json()
         types = {r["type"] for r in body["resources"]}
         assert types == set(RESOURCE_TYPE_REGISTRY)
-        assert len(body["resources"]) == 8
+        assert len(body["resources"]) == len(RESOURCE_TYPE_REGISTRY)
 
     def test_put_then_get_round_trips_content(
         self,
@@ -528,7 +528,7 @@ class TestFullApiFlow:
         # 3. GET /api/resources/{id} → 8 resource types.
         r3 = client.get(f"/api/resources/{pid}")
         assert r3.status_code == 200
-        assert len(r3.json()["resources"]) == 8
+        assert len(r3.json()["resources"]) == len(RESOURCE_TYPE_REGISTRY)
 
         # 4. PUT /api/resources/{id}/state {content} → 200.
         r4 = client.put(
@@ -609,10 +609,11 @@ class TestFullApiFlow:
         assert r13.status_code == 200, r13.text
         assert r13.json()["model"] == "premium"
 
-        # 14. GET /api/novel/{id} → chapter list (may be empty).
+        # 14. GET /api/novel/{id} → the workflow round in step 7-8 produced
+        # a chapter (scripted mock finalize writes novels/chapter_001.txt).
         r14 = client.get(f"/api/novel/{pid}")
         assert r14.status_code == 200
-        assert r14.json()["chapters"] == []
+        assert len(r14.json()["chapters"]) >= 1
 
         # 15. POST /api/import → 400 (todo 34 replaced the 501 stub with
         # real card-import; empty body is now a 400 validation error).
