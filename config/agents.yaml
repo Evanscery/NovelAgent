@@ -16,7 +16,8 @@ default_tools:
   - list_files
   - glob_files
   - grep_lines
-  - read_lines# NOTE: valid tool names are the keys of BUILTIN_TOOL_SCHEMAS
+  - read_lines
+# NOTE: valid tool names are the keys of BUILTIN_TOOL_SCHEMAS
 # (app/agents/tools.py). dice_roll and the director tools
 # (call_agent / await / finalize) are deliberately NOT defaults —
 # an agent opts into them via its own `tools:` list.
