@@ -49,10 +49,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, status
 from fastapi import Path as FastPath
 
-from app.api.routes._message_store import MessageStore
+from app.api.routes._deps import ProjectIdPath, RootDep, resolve_project
 from app.api.schemas import (
     ChatMessage,
     ChatResponse,
@@ -60,9 +60,9 @@ from app.api.schemas import (
     SendChatRequest,
 )
 from app.config_loader import ConfigLoader
+from app.data.message_store import MessageStore
 from app.data.project_repo import ProjectRepo
 from app.data.versioning import VersionManager
-from app.project_paths import ProjectPathError, resolve_project_path
 from app.runtime.runner_factory import build_runner
 from app.runtime.runners.base import AgentRunner
 from app.runtime.session import create_round_session, run_session
@@ -71,7 +71,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
-ProjectIdPath = Annotated[str, FastPath(..., description="System-controlled project id")]
 MessageIdPath = Annotated[str, FastPath(..., description="Chat message id (msg_<uuid8>)")]
 
 _INITIAL_TURN_ID = "0"  # written by scaffold_project (project_init.py)
@@ -98,34 +97,11 @@ CHAT_RUNNER_FACTORY: Callable[[Path, str], AgentRunner] = _default_chat_runner_f
 # ── Dependencies ─────────────────────────────────────────────────────────
 
 
-def _root_dep(request: Request) -> Path:
-    root = getattr(request.app.state, "root", None)
-    if root is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Server root not initialised",
-        )
-    return Path(root)
-
-
-RootDep = Annotated[Path, Depends(_root_dep)]
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
-def _resolve_project(root: Path, project_id: str) -> Path:
-    """Resolve *project_id* to its workspace path or 404."""
-    try:
-        path = resolve_project_path(root, project_id)
-    except ProjectPathError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    if not path.exists() or not (path / "config.yaml").exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project {project_id!r} not found",
-        )
-    return path
 
 
 def _new_message_id() -> str:
@@ -236,7 +212,7 @@ def get_chat_history(
     root: RootDep,
 ) -> list[ChatMessage]:
     """Return the full chat history for *project_id* (chronological)."""
-    project_path = _resolve_project(root, project_id)
+    project_path = resolve_project(root, project_id)
     return MessageStore(project_path).read_messages()
 
 
@@ -254,7 +230,7 @@ async def send_chat_message(
     3. Append the director message to the log.
     4. Commit a Turn (so the exchange is versioned with the project).
     """
-    project_path = _resolve_project(root, project_id)
+    project_path = resolve_project(root, project_id)
     store = MessageStore(project_path)
     store.ensure_log()
 
@@ -307,7 +283,7 @@ def delete_chat_message(
     guide:314-316 rollback = new branch (NOT delete) — the original
     timeline is preserved on its old branch.
     """
-    project_path = _resolve_project(root, project_id)
+    project_path = resolve_project(root, project_id)
     messages = MessageStore(project_path).read_messages()
     target: ChatMessage | None = None
     for msg in messages:
@@ -359,7 +335,7 @@ async def retry_chat_message(
     branch name is returned in :class:`RetryResponse` so the client can
     show the user that a new timeline was created.
     """
-    project_path = _resolve_project(root, project_id)
+    project_path = resolve_project(root, project_id)
     messages = MessageStore(project_path).read_messages()
     target: ChatMessage | None = None
     for msg in messages:

@@ -333,12 +333,18 @@ class TestGenerateFlowSequence:
 
 
 class TestWorkflowTreeSaveLoad:
-    """WorkflowTree.save/load round-trip via yaml and json."""
+    """to_dict-serialized trees round-trip through WorkflowTree.load.
+
+    Persisting is the caller's job (the agent layer only serializes via
+    ``to_dict``), so the tests write the dict themselves.
+    """
 
     def test_yaml_round_trip(self, tmp_path: Path) -> None:
+        import yaml
+
         tree = parse_canvas_to_tree(_linear_canvas())
         p = tmp_path / "tree.yaml"
-        tree.save(p)
+        p.write_text(yaml.safe_dump(tree.to_dict(), allow_unicode=True), encoding="utf-8")
         loaded = WorkflowTree.load(p)
         assert loaded.node_count() == tree.node_count()
         assert set(loaded.all_nodes) == set(tree.all_nodes)
@@ -347,18 +353,20 @@ class TestWorkflowTreeSaveLoad:
             assert loaded.all_nodes[nid].parent_id == tree.all_nodes[nid].parent_id
 
     def test_json_round_trip(self, tmp_path: Path) -> None:
+        import json
+
         tree = parse_canvas_to_tree(_linear_canvas())
         p = tmp_path / "tree.json"
-        tree.save(p)
+        p.write_text(json.dumps(tree.to_dict(), ensure_ascii=False), encoding="utf-8")
         loaded = WorkflowTree.load(p)
         assert loaded.node_count() == tree.node_count()
         assert set(loaded.all_nodes) == set(tree.all_nodes)
 
-    def test_unsupported_extension_raises(self, tmp_path: Path) -> None:
-        tree = parse_canvas_to_tree(_linear_canvas())
+    def test_load_unsupported_extension_raises(self, tmp_path: Path) -> None:
         p = tmp_path / "tree.txt"
+        p.write_text("root_id: x", encoding="utf-8")
         with pytest.raises(ValueError, match="unsupported file extension"):
-            tree.save(p)
+            WorkflowTree.load(p)
 
 
 # ── load_workflow (file-level) ──────────────────────────────────────────────
@@ -368,9 +376,11 @@ class TestLoadWorkflow:
     """load_workflow supports both tree-format and canvas-format files."""
 
     def test_load_workflow_tree_format(self, tmp_path: Path) -> None:
+        import yaml
+
         tree = parse_canvas_to_tree(_linear_canvas())
         p = tmp_path / "tree.yaml"
-        tree.save(p)
+        p.write_text(yaml.safe_dump(tree.to_dict(), allow_unicode=True), encoding="utf-8")
         loaded = load_workflow(p)
         assert loaded.node_count() == tree.node_count()
 

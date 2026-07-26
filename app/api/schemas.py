@@ -45,9 +45,6 @@ __all__ = [
     "SendChatRequest",
 ]
 
-_VALID_MODES = {"novel", "rp"}
-
-
 class CreateProjectRequest(BaseModel):
     """POST /api/projects body."""
 
@@ -91,7 +88,9 @@ class ProjectListResponse(BaseModel):
 # ── Workflow run routes (todo 22) ────────────────────────────────────────
 
 
-ChatMessageRole = Literal["user", "director", "system"]
+# ChatMessage is persisted by the data layer (work/chat.jsonl); the wire
+# schema re-exports it so API consumers keep importing from here.
+from app.data.message_store import ChatMessage, ChatMessageRole  # noqa: E402
 
 
 class RunWorkflowRequest(BaseModel):
@@ -132,16 +131,6 @@ class RoundStatusResponse(BaseModel):
 
 
 # ── Chat routes (todo 22) ────────────────────────────────────────────────
-
-
-class ChatMessage(BaseModel):
-    """A single chat message in the director chat log."""
-
-    message_id: str = Field(description="Stable unique id (e.g. ``msg_<uuid8>``)")
-    role: ChatMessageRole
-    content: str
-    turn_id: str = Field(description="The Turn commit this message belongs to / produced")
-    timestamp: str = Field(description="ISO-8601 UTC timestamp")
 
 
 class SendChatRequest(BaseModel):

@@ -36,7 +36,7 @@ _RESOURCE_TYPE_NAMES: list[str] = list(RESOURCE_TYPE_REGISTRY.keys())
 # Path to the default workflow canvas shipped with the agent layer.
 _DEFAULT_WORKFLOW_SRC = Path(__file__).parent / "agents" / "default_workflow.yaml"
 
-_VALID_MODES = {"novel", "rp"}
+VALID_MODES = {"novel", "rp"}
 
 
 def scaffold_project(root: Path | str, display_name: str, mode: str = "novel") -> Path:
@@ -58,8 +58,8 @@ def scaffold_project(root: Path | str, display_name: str, mode: str = "novel") -
     if not display_name or not display_name.strip():
         msg = "display_name must be a non-empty string"
         raise ValueError(msg)
-    if mode not in _VALID_MODES:
-        msg = f"Invalid mode {mode!r}; must be one of {sorted(_VALID_MODES)}"
+    if mode not in VALID_MODES:
+        msg = f"Invalid mode {mode!r}; must be one of {sorted(VALID_MODES)}"
         raise ValueError(msg)
 
     # 1. System-controlled id + path resolution.

@@ -21,12 +21,12 @@ from __future__ import annotations
 import shutil
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Any
 
 import yaml
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi import Path as FastPath
+from fastapi import APIRouter, HTTPException, status
 
+from app.api.routes._deps import ProjectIdPath, RootDep
 from app.api.schemas import (
     CreateProjectRequest,
     PatchProjectRequest,
@@ -35,7 +35,7 @@ from app.api.schemas import (
     ProjectSummary,
 )
 from app.config_loader import ConfigLoader
-from app.project_init import scaffold_project
+from app.project_init import VALID_MODES, scaffold_project
 from app.project_paths import (
     ProjectPathError,
     list_project_ids,
@@ -44,24 +44,10 @@ from app.project_paths import (
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
-_VALID_MODES = {"novel", "rp"}
 
 
-ProjectIdPath = Annotated[str, FastPath(..., description="System-controlled project id")]
 
 
-def _root_dep(request: Request) -> Path:
-    """Resolve the repo root from app state (set by ``create_app``)."""
-    root = getattr(request.app.state, "root", None)
-    if root is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Server root not initialised",
-        )
-    return Path(root)
-
-
-RootDep = Annotated[Path, Depends(_root_dep)]
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -101,10 +87,10 @@ def _project_response(root: Path, project_id: str) -> ProjectResponse:
 )
 def create_project(req: CreateProjectRequest, root: RootDep) -> ProjectResponse:
     """Create a new project. The id is generated server-side."""
-    if req.mode not in _VALID_MODES:
+    if req.mode not in VALID_MODES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid mode {req.mode!r}; must be one of {sorted(_VALID_MODES)}",
+            detail=f"Invalid mode {req.mode!r}; must be one of {sorted(VALID_MODES)}",
         )
 
     project_path = scaffold_project(root, display_name=req.display_name, mode=req.mode)
@@ -142,10 +128,10 @@ def patch_project(
     root: RootDep,
 ) -> ProjectResponse:
     """Update display_name and/or mode in the project's config.yaml."""
-    if req.mode is not None and req.mode not in _VALID_MODES:
+    if req.mode is not None and req.mode not in VALID_MODES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid mode {req.mode!r}; must be one of {sorted(_VALID_MODES)}",
+            detail=f"Invalid mode {req.mode!r}; must be one of {sorted(VALID_MODES)}",
         )
 
     try:

@@ -19,15 +19,15 @@ import re
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, status
 from fastapi import Path as FastPath
 
+from app.api.routes._deps import ProjectIdPath, RootDep, resolve_project
 from app.api.schemas import (
     NovelChapterListResponse,
     NovelChapterResponse,
     NovelChapterSummary,
 )
-from app.project_paths import ProjectPathError, resolve_project_path
 
 router = APIRouter(prefix="/api/novel", tags=["novel"])
 
@@ -35,34 +35,11 @@ _CHAPTER_FILE_RE = re.compile(r"^chapter_(\d+)\.txt$")
 _TRAVERSAL_RE = re.compile(r"[\\/]|\.\.|\x00")
 
 
-ProjectIdPath = Annotated[str, FastPath(..., description="System-controlled project id")]
 ChapterPath = Annotated[str, FastPath(..., description="Chapter filename, stem, or number")]
 
 
-def _root_dep(request: Request) -> Path:
-    root = getattr(request.app.state, "root", None)
-    if root is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Server root not initialised",
-        )
-    return Path(root)
 
 
-RootDep = Annotated[Path, Depends(_root_dep)]
-
-
-def _resolve_project(root: Path, project_id: str) -> Path:
-    try:
-        path = resolve_project_path(root, project_id)
-    except ProjectPathError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    if not path.exists() or not (path / "config.yaml").exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project {project_id!r} not found",
-        )
-    return path
 
 
 def _parse_chapter_number(filename: str) -> int | None:
@@ -133,7 +110,7 @@ def _resolve_chapter_path(novels_dir: Path, chapter: str) -> Path:
 @router.get("/{project_id}", response_model=NovelChapterListResponse)
 def list_chapters(project_id: ProjectIdPath, root: RootDep) -> NovelChapterListResponse:
     """List exported chapters in ``workspaces/<id>/novels/``."""
-    path = _resolve_project(root, project_id)
+    path = resolve_project(root, project_id)
     chapters = _list_chapters(path / "novels")
     return NovelChapterListResponse(project_id=project_id, chapters=chapters)
 
@@ -145,7 +122,7 @@ def read_chapter(
     root: RootDep,
 ) -> NovelChapterResponse:
     """Read one chapter's content (filename, stem, or number)."""
-    path = _resolve_project(root, project_id)
+    path = resolve_project(root, project_id)
     file_path = _resolve_chapter_path(path / "novels", chapter)
     try:
         content = file_path.read_text(encoding="utf-8")

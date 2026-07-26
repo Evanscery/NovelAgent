@@ -1,20 +1,36 @@
-"""MessageStore — JSONL chat log persistence for the director chat API.
+"""MessageStore — JSONL chat log persistence.
 
-Extracted from chat.py to separate message persistence from route handling.
-The chat log lives at ``work/chat.jsonl`` — one ChatMessage JSON object per line,
-in chronological order, versioned by the project's independent git repo.
+Pure storage: one :class:`ChatMessage` JSON object per line at
+``work/chat.jsonl``, chronological, versioned by the project's git repo.
+The data layer knows nothing about routes or chat semantics — it only
+reads/appends validated records. ``ChatMessage`` lives here (the wire
+schema in ``app.api.schemas`` re-exports it) so the store does not depend
+on the API layer.
 """
 from __future__ import annotations
 
 import json
 import logging
 from pathlib import Path
+from typing import Literal
 
-from app.api.schemas import ChatMessage
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
 _CHAT_LOG_REL = Path("work") / "chat.jsonl"
+
+ChatMessageRole = Literal["user", "director", "system"]
+
+
+class ChatMessage(BaseModel):
+    """A single chat message in the director chat log."""
+
+    message_id: str = Field(description="Stable unique id (e.g. ``msg_<uuid8>``)")
+    role: ChatMessageRole
+    content: str
+    turn_id: str = Field(description="The Turn commit this message belongs to / produced")
+    timestamp: str = Field(description="ISO-8601 UTC timestamp")
 
 
 class MessageStore:

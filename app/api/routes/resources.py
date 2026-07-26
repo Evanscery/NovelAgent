@@ -20,13 +20,13 @@ pattern from :mod:`app.api.routes.projects`.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Annotated
 
 import git
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, status
 from fastapi import Path as FastPath
 
+from app.api.routes._deps import ProjectIdPath, RootDep, resolve_project
 from app.api.schemas import (
     PutResourceRequest,
     ResourceContentResponse,
@@ -35,10 +35,9 @@ from app.api.schemas import (
     ResourceListEntry,
     ResourceListResponse,
 )
-from app.data.resource_types import RESOURCE_TYPE_REGISTRY, get_resource_type
+from app.data.resource_types import RESOURCE_TYPE_REGISTRY
 from app.data.store import ResourceStore
 from app.data.versioning import VersionManager
-from app.project_paths import ProjectPathError, resolve_project_path
 
 router = APIRouter(prefix="/api/resources", tags=["resources"])
 
@@ -61,34 +60,11 @@ _TYPE_TITLES: dict[str, str] = {
 _SUMMARY_MAX_CHARS = 240
 
 
-ProjectIdPath = Annotated[str, FastPath(..., description="System-controlled project id")]
 ResourceTypePath = Annotated[str, FastPath(..., description="Resource type key")]
 
 
-def _root_dep(request: Request) -> Path:
-    root = getattr(request.app.state, "root", None)
-    if root is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Server root not initialised",
-        )
-    return Path(root)
 
 
-RootDep = Annotated[Path, Depends(_root_dep)]
-
-
-def _resolve_project(root: Path, project_id: str) -> Path:
-    try:
-        path = resolve_project_path(root, project_id)
-    except ProjectPathError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    if not path.exists() or not (path / "config.yaml").exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project {project_id!r} not found",
-        )
-    return path
 
 
 def _validate_type(type_name: str) -> str:
@@ -105,15 +81,6 @@ def _validate_type(type_name: str) -> str:
 
 def _title_for(type_name: str) -> str:
     return _TYPE_TITLES.get(type_name, type_name)
-
-
-def _list_content_files(res_dir: Path) -> list[Path]:
-    skip = {"properties.md", "manifest.json", ".index"}
-    if not res_dir.is_dir():
-        return []
-    return sorted(
-        c for c in res_dir.iterdir() if c.is_file() and c.name not in skip
-    )
 
 
 def _build_summary(content: str) -> str:
@@ -136,20 +103,24 @@ def list_resources(project_id: ProjectIdPath, root: RootDep) -> ResourceListResp
     the project has not written any content yet — the front-end renders
     an editor tab for every type (refactor_guide:388-400).
     """
-    path = _resolve_project(root, project_id)
+    path = resolve_project(root, project_id)
+    store = ResourceStore(path)
 
     entries: list[ResourceListEntry] = []
     for type_name in sorted(RESOURCE_TYPE_REGISTRY):
-        res_dir = path / "resources" / type_name
-        files = _list_content_files(res_dir)
+        # Only touch the store when the resource already exists on disk —
+        # a GET must not scaffold directories (no write side effects).
+        files: list[str] = []
         summary = ""
-        if files:
-            try:
-                # Build a preview from the first file's leading content.
-                first = files[0].read_text(encoding="utf-8")
-                summary = _build_summary(first)
-            except (OSError, UnicodeDecodeError):
-                summary = ""
+        if (path / "resources" / type_name).is_dir():
+            resource = store.create_resource(type_name, type_name)
+            files = store.list_files(resource)
+            if files:
+                try:
+                    # Build a preview from the first file's leading content.
+                    summary = _build_summary(store.read(resource, files[0]))
+                except (OSError, UnicodeDecodeError):
+                    summary = ""
         entries.append(
             ResourceListEntry(
                 type=type_name,
@@ -170,12 +141,15 @@ def read_resource(
 ) -> ResourceContentResponse:
     """Read the full content of resource *type* in *project_id*."""
     _validate_type(type)
-    path = _resolve_project(root, project_id)
+    path = resolve_project(root, project_id)
     store = ResourceStore(path)
-    # create_resource is idempotent — ensures the dir/properties/manifest exist.
-    resource = store.create_resource(type, type)
-    content = store.read(resource)
-    files = [f.name for f in _list_content_files(resource.path)]
+    # A GET must not scaffold — an untouched resource reads as empty.
+    content = ""
+    files: list[str] = []
+    if (path / "resources" / type).is_dir():
+        resource = store.create_resource(type, type)
+        content = store.read(resource)
+        files = store.list_files(resource)
     return ResourceContentResponse(
         project_id=project_id,
         type=type,
@@ -210,13 +184,13 @@ def put_resource(
                 "(variables are front-end display only, per guide:210-211)."
             ),
         )
-    path = _resolve_project(root, project_id)
+    path = resolve_project(root, project_id)
     store = ResourceStore(path)
     resource = store.create_resource(type, type)
     filename = req.filename or "content.md"
     store.write(resource, filename, req.content)
     content = store.read(resource)
-    files = [f.name for f in _list_content_files(resource.path)]
+    files = store.list_files(resource)
     return ResourceContentResponse(
         project_id=project_id,
         type=type,
@@ -243,7 +217,7 @@ def resource_history(
     whose diff actually touches that subtree are listed (newest first).
     """
     _validate_type(type)
-    path = _resolve_project(root, project_id)
+    path = resolve_project(root, project_id)
     vm = VersionManager(path)
 
     try:
@@ -269,12 +243,4 @@ def resource_history(
     )
 
 
-# Re-export so callers can ``from app.api.routes.resources import get_resource_type``
-__all__ = [
-    "get_resource_type",
-    "read_resource",
-    "put_resource",
-    "resource_history",
-    "list_resources",
-    "router",
-]
+__all__ = ["router"]

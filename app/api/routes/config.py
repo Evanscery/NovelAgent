@@ -29,12 +29,13 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import yaml
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, status
 from fastapi import Path as FastPath
 
 from app.agents.agent import Agent
 from app.agents.permission import Permission, parse_permission
 from app.agents.registry import AgentRegistry, build_project_registry
+from app.api.routes._deps import ProjectIdPath, RootDep, resolve_project
 from app.api.schemas import (
     AgentConfigResponse,
     ConfigResponse,
@@ -43,11 +44,10 @@ from app.api.schemas import (
     PutProjectConfigRequest,
 )
 from app.config_loader import ConfigLoader
-from app.project_paths import ProjectPathError, resolve_project_path
+from app.project_init import VALID_MODES
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 
-_VALID_MODES = {"novel", "rp"}
 
 # Global tier files: name → (relative path, top-level wrapper key).
 # models.yaml and runtime.yaml are stored without a wrapper (the dict IS
@@ -61,34 +61,11 @@ _GLOBAL_TIER_FILES: dict[str, tuple[Path, str | None]] = {
 }
 
 
-ProjectIdPath = Annotated[str, FastPath(..., description="System-controlled project id")]
 AgentNamePath = Annotated[str, FastPath(..., description="Agent name")]
 
 
-def _root_dep(request: Request) -> Path:
-    root = getattr(request.app.state, "root", None)
-    if root is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Server root not initialised",
-        )
-    return Path(root)
 
 
-RootDep = Annotated[Path, Depends(_root_dep)]
-
-
-def _resolve_project(root: Path, project_id: str) -> Path:
-    try:
-        path = resolve_project_path(root, project_id)
-    except ProjectPathError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    if not path.exists() or not (path / "config.yaml").exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project {project_id!r} not found",
-        )
-    return path
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -236,7 +213,7 @@ def list_project_agents(
     :func:`put_project_config` (i.e. the merge is observable by the
     front-end; the runtime default remains global).
     """
-    path = _resolve_project(root, project_id)
+    path = resolve_project(root, project_id)
     registry = _load_project_registry(path)
     return [_agent_to_response(registry.get(agent_id)) for agent_id in registry.list_ids()]
 
@@ -260,7 +237,7 @@ def put_project_agent(
             detail=f"Body name {req.name!r} does not match path name {name!r}",
         )
 
-    path = _resolve_project(root, project_id)
+    path = resolve_project(root, project_id)
     registry = _load_project_registry(path)
     if not registry.has_by_name(name):
         raise HTTPException(
@@ -307,7 +284,7 @@ def put_project_agent(
 @router.get("/{project_id}", response_model=ConfigResponse)
 def get_project_config(project_id: ProjectIdPath, root: RootDep) -> ConfigResponse:
     """Return the merged per-project config (global + project overrides)."""
-    _resolve_project(root, project_id)
+    resolve_project(root, project_id)
     loader = ConfigLoader(root)
     cfg = loader.load_project(project_id)
     return ConfigResponse(
@@ -333,13 +310,13 @@ def put_project_config(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No fields to update (provide display_name, mode, models, runtime, agents, and/or server)",
         )
-    if req.mode is not None and req.mode not in _VALID_MODES:
+    if req.mode is not None and req.mode not in VALID_MODES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid mode {req.mode!r}; must be one of {sorted(_VALID_MODES)}",
+            detail=f"Invalid mode {req.mode!r}; must be one of {sorted(VALID_MODES)}",
         )
 
-    path = _resolve_project(root, project_id)
+    path = resolve_project(root, project_id)
     config_path = path / "config.yaml"
     raw = _read_yaml(config_path)
     if req.display_name is not None:

@@ -1,21 +1,15 @@
-"""Facade module — re-exports public API from split submodules.
+"""Facade module — the agent layer's workflow API in one import surface.
 
-The original monolithic workflow.py (720 lines) has been split into:
-- app/canvas/canvas_model.py: CanvasNode, CanvasWire, CanvasGraph (user-facing canvas model)
-- tree_model.py: TreeNode, WorkflowTree (parser output tree model)
-- canvas_parser.py: parse_canvas_to_tree + private helpers (canvas→tree parser)
-- flow_sequence.py: generate_flow_sequence (flow sequence text generator)
-- workflow_loader.py: load_workflow + coercion helpers (file loader)
-
-All public symbols are re-exported here so existing imports
-``from app.agents.workflow import X`` continue to work.
+Re-exports the canvas model, the tree model, the canvas→tree parser, the
+flow-sequence generator and the workflow loaders, so callers can use
+``from app.agents.workflow import X`` without tracking submodule layout.
 """
 from __future__ import annotations
 
 from app.agents.canvas_parser import parse_canvas_to_tree
 from app.agents.flow_sequence import generate_flow_sequence
 from app.agents.tree_model import TreeNode, WorkflowTree
-from app.agents.workflow_loader import load_workflow
+from app.agents.workflow_loader import load_default_workflow, load_workflow
 from app.canvas.canvas_model import CanvasGraph, CanvasNode, CanvasWire
 
 __all__ = [
@@ -25,6 +19,7 @@ __all__ = [
     "TreeNode",
     "WorkflowTree",
     "generate_flow_sequence",
+    "load_default_workflow",
     "load_workflow",
     "parse_canvas_to_tree",
 ]

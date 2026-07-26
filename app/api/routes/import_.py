@@ -34,6 +34,7 @@ from pathlib import Path
 import yaml
 from fastapi import APIRouter, HTTPException, Request, status
 
+from app.api.routes._deps import _root_dep
 from app.api.schemas import ImportRequest, ImportResponse
 from app.compat.tavern_card.card_migration import (
     infer_card_ir,
@@ -42,23 +43,10 @@ from app.compat.tavern_card.card_migration import (
     load_card_payload,
     materialize_project_from_card,
 )
-from app.project_init import scaffold_project
+from app.project_init import VALID_MODES, scaffold_project
 from app.project_paths import ProjectPathError, resolve_project_path
 
 router = APIRouter(prefix="/api/import", tags=["import"])
-
-_VALID_MODES = {"novel", "rp"}
-
-
-def _root_dep(request: Request) -> Path:
-    """Resolve the repo root from app state (set by ``create_app``)."""
-    root = getattr(request.app.state, "root", None)
-    if root is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Server root not initialised",
-        )
-    return Path(root)
 
 
 # ── POST /api/import ─────────────────────────────────────────────────────
@@ -118,10 +106,10 @@ def import_card(req: ImportRequest, request: Request) -> ImportResponse:
     else:
         display_name_for_scaffold = req.display_name or card_ir.get("card_name") or "Imported Card"
         mode_for_scaffold = req.mode or runtime_plan.get("recommended_mode", "novel")
-        if mode_for_scaffold not in _VALID_MODES:
+        if mode_for_scaffold not in VALID_MODES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid mode {mode_for_scaffold!r}; must be one of {sorted(_VALID_MODES)}",
+                detail=f"Invalid mode {mode_for_scaffold!r}; must be one of {sorted(VALID_MODES)}",
             )
         project_path = scaffold_project(
             root, display_name=display_name_for_scaffold, mode=mode_for_scaffold
@@ -135,7 +123,7 @@ def import_card(req: ImportRequest, request: Request) -> ImportResponse:
     #    the caller is reusing an existing project and did not override).
     display_name_final = req.display_name or card_ir.get("card_name") or "Imported Card"
     mode_final = req.mode or runtime_plan.get("recommended_mode", "novel")
-    if mode_final not in _VALID_MODES:
+    if mode_final not in VALID_MODES:
         # Defensive: the runtime plan should always produce a valid mode.
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

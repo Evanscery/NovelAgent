@@ -41,11 +41,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, cast
 
+import yaml
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from fastapi import Path as FastPath
 
 from app.agents.registry import build_project_registry
-from app.agents.workflow import WorkflowTree, load_workflow
+from app.agents.workflow import WorkflowTree, load_default_workflow, load_workflow
+from app.api.routes._deps import ProjectIdPath, RootDep, resolve_project
 from app.api.schemas import (
     RoundResultSummary,
     RoundState,
@@ -53,7 +55,6 @@ from app.api.schemas import (
     RunWorkflowRequest,
 )
 from app.config_loader import ConfigLoader
-from app.project_paths import ProjectPathError, resolve_project_path
 from app.runtime.runner_factory import build_runner
 from app.runtime.runners.base import AgentRunner
 from app.runtime.session import (
@@ -67,7 +68,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/workflow", tags=["workflow"])
 
-ProjectIdPath = Annotated[str, FastPath(..., description="System-controlled project id")]
 RoundIdPath = Annotated[str, FastPath(..., description="Round id returned by POST /run")]
 
 
@@ -142,17 +142,6 @@ def _get_registry(request: Request) -> RoundRegistry:
     return reg
 
 
-def _root_dep(request: Request) -> Path:
-    root = getattr(request.app.state, "root", None)
-    if root is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Server root not initialised",
-        )
-    return Path(root)
-
-
-RootDep = Annotated[Path, Depends(_root_dep)]
 RegistryDep = Annotated[RoundRegistry, Depends(_get_registry)]
 
 
@@ -179,18 +168,6 @@ RUNNER_FACTORY: Callable[[Path, str], AgentRunner] = _default_runner_factory
 # -- Helpers -----------------------------------------------------------------
 
 
-def _resolve_project(root: Path, project_id: str) -> Path:
-    """Resolve *project_id* to its workspace path or 404."""
-    try:
-        path = resolve_project_path(root, project_id)
-    except ProjectPathError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    if not path.exists() or not (path / "config.yaml").exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project {project_id!r} not found",
-        )
-    return path
 
 
 def _load_workflow_tree(project_path: Path) -> WorkflowTree:
@@ -199,7 +176,7 @@ def _load_workflow_tree(project_path: Path) -> WorkflowTree:
     if wf_path.exists():
         return load_workflow(wf_path)
     # Fall back to the built-in default workflow shipped with the agent layer.
-    return load_workflow(Path(__file__).resolve().parents[2] / "agents" / "default_workflow.yaml")
+    return load_default_workflow()
 
 
 async def _run_round_background(session: RoundSession) -> None:
@@ -238,7 +215,7 @@ async def run_workflow(
     Returns ``202`` with the initial ``pending`` :class:`RoundStatusResponse`.
     The client polls ``GET /round/{round_id}`` for completion.
     """
-    project_path = _resolve_project(root, project_id)
+    project_path = resolve_project(root, project_id)
 
     # Refuse to start a second concurrent round for the same project.
     existing = registry.get_running_for_project(project_id)
@@ -286,7 +263,7 @@ def get_round_status(
     registry: RegistryDep,
 ) -> RoundStatusResponse:
     """Get the status / logs / result of a round."""
-    _resolve_project(root, project_id)  # 404 if project missing
+    resolve_project(root, project_id)  # 404 if project missing
     session = registry.get(round_id)
     if session is None or session.project_id != project_id:
         raise HTTPException(
@@ -307,7 +284,7 @@ def stop_workflow(
     Returns the (now ``stopped`` / stopping) round status. If no round is
     running, returns ``409``.
     """
-    _resolve_project(root, project_id)
+    resolve_project(root, project_id)
     session = registry.get_running_for_project(project_id)
     if session is None:
         raise HTTPException(
@@ -336,7 +313,7 @@ def export_workflow(
     project (exporting a dangling reference would produce an unusable
     workflow).
     """
-    project_path = _resolve_project(root, project_id)
+    project_path = resolve_project(root, project_id)
     tree = _load_workflow_tree(project_path)
     try:
         registry = build_project_registry(project_path)
@@ -370,7 +347,7 @@ def import_workflow(
     :func:`app.runtime.session.create_round_session`), so the imported
     workflow runs with its own agents regardless of name collisions.
     """
-    project_path = _resolve_project(root, project_id)
+    project_path = resolve_project(root, project_id)
     try:
         tree = WorkflowTree.from_dict(payload)
     except (ValueError, TypeError, KeyError) as exc:
@@ -389,7 +366,12 @@ def import_workflow(
             },
         )
 
-    tree.save(project_path / "workflow.yaml")
+    # The agent layer only serializes (to_dict); persisting the file is
+    # this route's responsibility.
+    (project_path / "workflow.yaml").write_text(
+        yaml.safe_dump(tree.to_dict(), allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
     return {
         "imported": True,
         "node_count": tree.node_count(),

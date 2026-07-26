@@ -326,30 +326,14 @@ class WorkflowTree:
 
         return cls(root=root, all_nodes=nodes, definitions=definitions)
 
-    def save(self, path: str | Path, registry: AgentRegistry | None = None) -> None:
-        """Serialize to a yaml or json file (by extension).
-
-        Pass *registry* to write a portable export (see :meth:`to_dict`).
-        """
-        p = Path(path)
-        data = self.to_dict(registry=registry)
-        if p.suffix.lower() in (".yaml", ".yml"):
-            p.write_text(
-                yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
-                encoding="utf-8",
-            )
-        elif p.suffix.lower() == ".json":
-            p.write_text(
-                json.dumps(data, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-        else:
-            msg = f"WorkflowTree.save: unsupported file extension {p.suffix!r}"
-            raise ValueError(msg)
-
     @classmethod
     def load(cls, path: str | Path) -> WorkflowTree:
-        """Reconstruct from a yaml or json file written by :meth:`save`."""
+        """Reconstruct from a yaml or json tree-format file.
+
+        The agent layer only *loads* its own definitions; persisting a
+        tree is the caller's job (serialize via :meth:`to_dict` and write
+        wherever the data belongs).
+        """
         p = Path(path)
         text = p.read_text(encoding="utf-8")
         if p.suffix.lower() in (".yaml", ".yml"):

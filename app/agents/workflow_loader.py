@@ -22,7 +22,7 @@ def load_workflow(path: str | Path) -> WorkflowTree:
     """Load a :class:`WorkflowTree` from a yaml or json file.
 
     Accepts either a **tree-format** file (``{"root_id": ..., "all_nodes": {...}}``,
-    produced by :meth:`WorkflowTree.save`) or a **canvas-format** file
+    the shape produced by :meth:`WorkflowTree.to_dict`) or a **canvas-format** file
     (``{"nodes": [...], "wires": [...]}``); the latter is compiled via
     :func:`parse_canvas_to_tree`.
     """
@@ -50,6 +50,16 @@ def load_workflow(path: str | Path) -> WorkflowTree:
         "(canvas format) at top level"
     )
     raise ValueError(msg)
+
+
+def load_default_workflow() -> WorkflowTree:
+    """Load the built-in default workflow shipped with the agent layer.
+
+    This is the agent layer's own resource (``app/agents/default_workflow.yaml``);
+    callers in other layers use this entry point instead of reaching into
+    the package directory with relative paths.
+    """
+    return load_workflow(Path(__file__).resolve().parent / "default_workflow.yaml")
 
 
 def _canvas_from_dict(data: dict[str, object]) -> CanvasGraph:
