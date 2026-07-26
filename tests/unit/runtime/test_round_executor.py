@@ -23,6 +23,10 @@ import pytest
 
 from app.agents.agent import Agent
 from app.agents.registry import AgentRegistry
+from app.agents.workflow import TreeNode, WorkflowTree
+from app.runtime.budget import BudgetTracker
+from app.runtime.permission import Permission, parse_permission
+from app.runtime.round_executor import RoundExecutor
 from app.runtime.runners.base import (
     AgentResponse,
     AgentRunner,
@@ -31,10 +35,6 @@ from app.runtime.runners.base import (
     ToolCall,
 )
 from app.runtime.runners.mock_runner import MockRunner
-from app.agents.workflow import TreeNode, WorkflowTree
-from app.runtime.budget import BudgetTracker
-from app.runtime.permission import Permission, parse_permission
-from app.runtime.round_executor import RoundExecutor
 from app.runtime.runtime import Runtime
 from app.runtime.tool_dispatcher import ScopedTools as ScopedToolsProtocol
 from app.runtime.tool_dispatcher import ToolDispatcher
@@ -597,3 +597,90 @@ async def test_unknown_tool_recorded_as_rejected_call() -> None:
     assert len(rejected) == 1
     assert "bogus_tool" in rejected[0].reason
     assert result.finalize_reason == "explicit_finalize"
+
+
+# ── call_agent id-first resolution (imported same-name agents) ───────────
+
+
+@pytest.mark.asyncio
+async def test_call_agent_resolves_id_first_via_tree_definition_id() -> None:
+    """When a tree node pins its display name to a ``definition_id``,
+    ``call_agent`` dispatches by id — an imported agent sharing a builtin's
+    display name is dispatched correctly instead of raising an ambiguous
+    name lookup."""
+    director = _make_agent("director")
+    builtin_writer = _make_agent("writer")
+    imported_writer = Agent(
+        id="writer-v2",
+        name="writer",  # collides with the builtin's display name
+        task="imported task",
+        input="i",
+        output="o",
+        permission=parse_permission({"read": ["state"], "write": []}),
+        skills=[],
+        tools=[],
+    )
+    registry = _make_registry(director, builtin_writer, imported_writer)
+
+    writer_node = TreeNode(
+        id="writer-node",
+        agent_name="writer",
+        description="",
+        params={},
+        depth=0,
+        parent_id=None,
+        definition_id="writer-v2",
+    )
+    tree = WorkflowTree(root=writer_node, all_nodes={"writer-node": writer_node})
+
+    called_ids: list[str] = []
+
+    class _RecordingSub(AgentRunner):
+        async def run(self, agent: RunnerAgent, prompt: str) -> AgentResponse:
+            called_ids.append(agent.id)
+            return await MockRunner().run(agent, prompt)
+
+    runner = _ScriptedRunner(
+        director_batches=[
+            [ToolCall(name="call_agent", args={"agent_name": "writer", "prompt": "写"})],
+            [ToolCall(name="finalize", args={})],
+        ],
+        sub_runner=_RecordingSub(),
+    )
+    executor = _make_executor(registry, runner)
+    result = await executor.execute_round(director=director, tree=tree, context="ctx")
+
+    assert result.finalize_reason == "explicit_finalize"
+    # Dispatched to the imported agent by id, not rejected as ambiguous.
+    assert called_ids == ["writer-v2"]
+    assert not any(r.reason == "agent_not_in_registry" for r in result.rejected_calls)
+
+
+@pytest.mark.asyncio
+async def test_call_agent_unpinned_ambiguous_name_is_rejected() -> None:
+    """Without a pinned definition_id, an ambiguous display name still
+    rejects with ``agent_not_in_registry`` (name fallback path)."""
+    director = _make_agent("director")
+    writer_a = Agent(
+        id="writer-a", name="writer", task="t", input="i", output="o",
+        permission=parse_permission({"read": ["state"], "write": []}),
+        skills=[], tools=[],
+    )
+    writer_b = Agent(
+        id="writer-b", name="writer", task="t", input="i", output="o",
+        permission=parse_permission({"read": ["state"], "write": []}),
+        skills=[], tools=[],
+    )
+    registry = _make_registry(director, writer_a, writer_b)
+    tree = _make_tree()  # nodes carry no definition_id
+
+    runner = _ScriptedRunner(
+        director_batches=[
+            [ToolCall(name="call_agent", args={"agent_name": "writer", "prompt": "写"})],
+            [ToolCall(name="finalize", args={})],
+        ],
+    )
+    executor = _make_executor(registry, runner)
+    result = await executor.execute_round(director=director, tree=tree, context="ctx")
+
+    assert any(r.reason == "agent_not_in_registry" for r in result.rejected_calls)

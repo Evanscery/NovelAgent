@@ -61,6 +61,7 @@ from typing import TYPE_CHECKING
 
 from app.agents.agent import Agent
 from app.agents.parser import parse_agent_to_prompt
+from app.agents.tree_model import AGENT_KIND
 from app.agents.workflow import WorkflowTree, generate_flow_sequence
 from app.runtime.budget import BudgetTracker, FinalizeSignal
 from app.runtime.runners.base import (
@@ -238,6 +239,17 @@ class RoundExecutor:
         director_text = ""
 
         flow_seq = generate_flow_sequence(tree)
+        # Name -> definition_id mapping from the tree's nodes. The director
+        # names call_agent targets by display name (what the flow sequence
+        # shows), but display names are not identities: an imported
+        # workflow may carry an agent whose name collides with a local
+        # one. Nodes that resolved a definition (definition_id set) pin
+        # their name to that id, so dispatch is id-first and collisions
+        # cannot reroute the call.
+        name_to_definition_id: dict[str, str] = {}
+        for node in tree.all_nodes.values():
+            if node.kind == AGENT_KIND and node.definition_id is not None:
+                name_to_definition_id.setdefault(node.agent_name, node.definition_id)
         # Per-agent-name call counts for the allow_recursive gate.
         call_counts: dict[str, int] = {}
         # Pending sub-agent results keyed by handle (call_agent returns a
@@ -335,6 +347,7 @@ class RoundExecutor:
                     recursive_calls=recursive_calls,
                     rejected_calls=rejected_calls,
                     pending=pending,
+                    name_to_definition_id=name_to_definition_id,
                 )
 
                 if outcome.finalized:
@@ -436,6 +449,7 @@ class RoundExecutor:
         recursive_calls: list[RecursiveCallRecord],
         rejected_calls: list[RejectedCallRecord],
         pending: dict[str, str],
+        name_to_definition_id: dict[str, str] | None = None,
     ) -> _ToolDispatchOutcome:
         """Dispatch a single director tool call.
 
@@ -465,6 +479,7 @@ class RoundExecutor:
                 recursive_calls=recursive_calls,
                 rejected_calls=rejected_calls,
                 pending=pending,
+                name_to_definition_id=name_to_definition_id or {},
             )
 
         # ── await: retrieve a previously scheduled sub-agent result ──
@@ -498,8 +513,14 @@ class RoundExecutor:
         recursive_calls: list[RecursiveCallRecord],
         rejected_calls: list[RejectedCallRecord],
         pending: dict[str, str],
+        name_to_definition_id: dict[str, str],
     ) -> _ToolDispatchOutcome:
         """Resolve and run a sub-agent named by ``call_agent``.
+
+        Resolution is id-first: when the workflow tree pinned the display
+        name to a ``definition_id``, that id is looked up directly (so an
+        imported same-name agent cannot reroute or break the dispatch).
+        Only unpinned names fall back to display-name resolution.
 
         Applies the recursion-control gates (allow_recursive + depth
         constraint) before running the sub-agent through the runtime.
@@ -507,9 +528,14 @@ class RoundExecutor:
         agent_name = str(args.get("agent_name", ""))
         prompt = str(args.get("prompt", ""))
 
-        # Resolve the target agent from the registry.
+        # Resolve the target agent: id-first via the tree's pinned
+        # definition_id, name-based fallback otherwise.
+        definition_id = name_to_definition_id.get(agent_name)
         try:
-            target_agent = self._registry.get_by_name(agent_name)
+            if definition_id is not None:
+                target_agent = self._registry.get(definition_id)
+            else:
+                target_agent = self._registry.get_by_name(agent_name)
         except KeyError:
             rejected_calls.append(
                 RejectedCallRecord(agent=agent_name, reason="agent_not_in_registry")
