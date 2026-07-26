@@ -684,3 +684,101 @@ async def test_call_agent_unpinned_ambiguous_name_is_rejected() -> None:
     result = await executor.execute_round(director=director, tree=tree, context="ctx")
 
     assert any(r.reason == "agent_not_in_registry" for r in result.rejected_calls)
+
+
+# ── 10. Sub-agents receive their OWN system prompt ───────────────────────
+
+
+@pytest.mark.asyncio
+async def test_sub_agent_request_carries_own_system_prompt() -> None:
+    """``call_agent`` builds the sub-agent's request from the sub-agent's
+    own config: its system prompt (task/permission/tools) plus the
+    director's instruction as the user message — the director's raw
+    string is no longer sent bare."""
+    from app.runtime.prompt_builder import RequestSpec
+
+    director = _make_agent("director")
+    recaller = Agent(
+        id="recaller",
+        name="recaller",
+        task="召回长期记忆中的相关内容",
+        input="检索指令",
+        output="召回结果列表",
+        permission=parse_permission({"read": ["state"], "write": []}),
+        skills=[],
+        tools=["read"],
+    )
+    registry = _make_registry(director, recaller)
+    tree = _make_tree()
+
+    captured_specs: list[RequestSpec] = []
+
+    class _CapturingSub(AgentRunner):
+        async def run(self, agent: RunnerAgent, request: RequestSpec) -> AgentResponse:
+            captured_specs.append(request)
+            return await MockRunner().run(agent, request)
+
+    runner = _ScriptedRunner(
+        director_batches=[
+            [ToolCall(name="call_agent", args={"agent_name": "recaller", "prompt": "召回主角设定"})],
+            [ToolCall(name="finalize", args={})],
+        ],
+        sub_runner=_CapturingSub(),
+    )
+    executor = _make_executor(registry, runner)
+    result = await executor.execute_round(director=director, tree=tree, context="ctx")
+
+    assert result.finalize_reason == "explicit_finalize"
+    assert len(captured_specs) == 1
+    spec = captured_specs[0]
+    # The sub-agent's own system prompt (from its own attribute set).
+    assert "## 你的任务" in spec.system
+    assert "召回长期记忆中的相关内容" in spec.system
+    # The director's instruction arrives as the user message.
+    assert [m.role for m in spec.messages] == ["user"]
+    assert spec.messages[0].content == "召回主角设定"
+
+
+@pytest.mark.asyncio
+async def test_director_history_accumulates_assistant_and_tool_messages() -> None:
+    """The workflow loop drives the director with real message history:
+    context as the first user message, then assistant + tool messages."""
+    from app.runtime.prompt_builder import RequestSpec
+
+    director = _make_agent("director")
+    recaller = _make_agent("recaller")
+    registry = _make_registry(director, recaller)
+    tree = _make_tree()
+
+    director_specs: list[RequestSpec] = []
+
+    class _CapturingScripted(_ScriptedRunner):
+        async def run(self, agent: RunnerAgent, request: RequestSpec) -> AgentResponse:
+            if getattr(agent, "name", "") == "director":
+                director_specs.append(request)
+            return await super().run(agent, request)
+
+    runner = _CapturingScripted(
+        director_batches=[
+            [ToolCall(name="call_agent", args={"agent_name": "recaller", "prompt": "召回"}, id="call_1")],
+            [ToolCall(name="finalize", args={})],
+        ],
+        director_texts=["调度召回", "完成"],
+    )
+    executor = _make_executor(registry, runner)
+    await executor.execute_round(director=director, tree=tree, context="上下文内容")
+
+    assert len(director_specs) == 2
+    # Turn 1: only the context user message.
+    assert [m.role for m in director_specs[0].messages] == ["user"]
+    assert director_specs[0].messages[0].content == "上下文内容"
+    # The flow sequence lives in the system prompt, not the messages.
+    assert "## 工作流执行顺序" in director_specs[0].system
+    # Turn 2: context + assistant response + tool feedback message.
+    roles = [m.role for m in director_specs[1].messages]
+    assert roles == ["user", "assistant", "tool"]
+    assert director_specs[1].messages[1].content == "调度召回"
+    tool_msg = director_specs[1].messages[2]
+    assert tool_msg.tool_call_id == "call_1"
+    assert tool_msg.name == "call_agent"
+    assert tool_msg.content.startswith("[call_agent recaller]")

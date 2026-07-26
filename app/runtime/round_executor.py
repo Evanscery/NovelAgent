@@ -18,9 +18,10 @@ Per the correct design (refactor_guide:92-101):
 
 The loop::
 
-    send director prompt  (with flow_sequence + context + tool results so far)
+    build director request  (system prompt with flow_sequence; history =
+                             context user message + prior assistant/tool messages)
     ↓
-    director response (text + tool_calls)
+    director response (text + tool_calls) → appended as an assistant message
     ↓
     for each tool_call:
         call_agent → resolve from registry, run sub-agent via runtime, store handle
@@ -29,7 +30,7 @@ The loop::
         read/write/list_files/glob_files/grep_lines/read_lines → dispatch to the director's ToolDispatcher (ScopedTools)
         <unknown>  → record RejectedCallRecord("unknown_tool")
     ↓
-    feed tool results back into the next director prompt
+    append each tool result to the history as a tool message
     ↓
     repeat until finalize / budget exhausted / no tool calls
 
@@ -60,16 +61,16 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from app.agents.agent import Agent
-from app.agents.parser import render_agent_system_prompt
 from app.agents.tree_model import AGENT_KIND
 from app.agents.workflow import WorkflowTree, generate_flow_sequence
 from app.runtime.budget import BudgetTracker, FinalizeSignal
-from app.runtime.prompt_builder import Message, RequestSpec
+from app.runtime.prompt_builder import Message, PromptBuilder
 from app.runtime.runners.base import (
     AgentRunner,
     ToolCall,
 )
 from app.runtime.runtime import Runtime
+from app.runtime.tool_catalog import build_default_catalog
 from app.runtime.tool_dispatcher import (
     ToolDispatcher,
     ToolResult,
@@ -78,19 +79,6 @@ from app.runtime.tool_dispatcher import (
 
 if TYPE_CHECKING:
     from app.agents.registry import AgentRegistry
-
-
-def _legacy_spec(agent: Agent, prompt: str) -> RequestSpec:
-    """Wrap a flat prompt string as a single-user-message RequestSpec.
-
-    Interim shim while the executor still assembles prompts as strings;
-    replaced by PromptBuilder-built specs in the message-history loop.
-    """
-    return RequestSpec(
-        system="",
-        messages=[Message(role="user", content=prompt)],
-        model=agent.model,
-    )
 
 
 @dataclass(frozen=True)
@@ -170,6 +158,9 @@ class RoundExecutor:
                   MUST be registered under the name ``"director"``.
         budget:   The :class:`BudgetTracker` -- consumed per director
                   iteration and per sub-agent call.
+        prompts:  The :class:`PromptBuilder` assembling each agent
+                  request (system prompt + message history + tools).
+                  Defaults to one backed by the default tool catalog.
         director_tools: The director's :class:`ToolDispatcher` (wrapping
                   a :class:`ScopedTools` with the director's permission)
                   for dispatching read/write/list_files/glob_files/grep_lines/read_lines tool calls. May be
@@ -189,6 +180,7 @@ class RoundExecutor:
         budget: BudgetTracker,
         director_tools: ToolDispatcher | None = None,
         maximal_recursive_calling_depth: int = 1,
+        prompts: PromptBuilder | None = None,
     ) -> None:
         self._runtime = runtime
         self._runner = runner
@@ -196,6 +188,7 @@ class RoundExecutor:
         self._budget = budget
         self._director_tools = director_tools
         self._max_depth = maximal_recursive_calling_depth
+        self._prompts = prompts if prompts is not None else PromptBuilder(build_default_catalog())
 
     async def execute_round(
         self,
@@ -272,9 +265,14 @@ class RoundExecutor:
         # to the sub-agent's response text.
         pending: dict[str, str] = {}
 
-        # The running "tool results so far" block appended to each
-        # subsequent director prompt so the director sees prior outputs.
-        tool_feedback: list[str] = []
+        # The director's conversation: the runtime context opens as the
+        # first user message; each turn appends the assistant response and
+        # one tool message per dispatched tool call, so the director sees
+        # prior outputs as real conversation history rather than a prompt
+        # blob.
+        history: list[Message] = []
+        if context:
+            history.append(Message(role="user", content=context))
 
         # The director's own depth is 0 (it is the system agent, not a
         # workflow node). Sub-agents called via call_agent are at depth 1
@@ -289,27 +287,10 @@ class RoundExecutor:
                 finalize_reason = "budget_exhausted"
                 break
 
-            # Assemble the director prompt: base prompt + tool feedback.
-            feedback_block = (
-                "\n\n## 工具调用结果\n" + "\n".join(tool_feedback)
-                if tool_feedback
-                else ""
-            )
-            # Mechanical adaptation until the PromptBuilder lands: the
-            # system prompt comes from the parser; the runtime context is
-            # appended here (it is conversation state, not agent config).
-            context_block = f"\n\n## 上下文\n{context}" if context else ""
-            director_prompt = (
-                render_agent_system_prompt(director, flow_sequence=flow_seq)
-                + context_block
-                + feedback_block
-            )
-
-            # Send the director request through the runtime.
+            # Assemble and send the director request through the runtime.
+            spec = self._prompts.build(director, history=history, flow_sequence=flow_seq)
             try:
-                response = await self._runtime.send_request(
-                    director, self._runner, _legacy_spec(director, director_prompt)
-                )
+                response = await self._runtime.send_request(director, self._runner, spec)
             except TimeoutError:
                 rejected_calls.append(
                     RejectedCallRecord(agent="director", reason="timeout")
@@ -327,6 +308,7 @@ class RoundExecutor:
                 break
 
             director_text = response.text
+            history.append(Message(role="assistant", content=response.text))
             tokens = response.usage.prompt_tokens + response.usage.completion_tokens
             total_tokens += tokens
             completed.append("director")
@@ -390,9 +372,19 @@ class RoundExecutor:
                         finalized = True
                         break
 
-                # Feed the tool result back to the director.
+                # Feed the tool result back to the director as a tool
+                # message correlated with the originating call. The
+                # feedback string format is unchanged — it is reused
+                # verbatim as the message content.
                 if outcome.feedback:
-                    tool_feedback.append(outcome.feedback)
+                    history.append(
+                        Message(
+                            role="tool",
+                            content=outcome.feedback,
+                            tool_call_id=tc.id,
+                            name=tc.name,
+                        )
+                    )
 
             if finalized:
                 break
@@ -419,12 +411,9 @@ class RoundExecutor:
         director is the sole agent and its response text is the
         user-facing reply.
         """
-        context_block = f"\n\n## 上下文\n{context}" if context else ""
-        prompt = render_agent_system_prompt(director) + context_block
+        spec = self._prompts.build(director, user_text=context or None)
         try:
-            response = await self._runtime.send_request(
-                director, self._runner, _legacy_spec(director, prompt)
-            )
+            response = await self._runtime.send_request(director, self._runner, spec)
         except Exception as exc:  # noqa: BLE001 -- chat must not crash
             return RoundResult(
                 completed_agents=[],
@@ -603,10 +592,13 @@ class RoundExecutor:
                 )
             )
 
-        # Run the sub-agent through the runtime.
+        # Run the sub-agent through the runtime, with its OWN system
+        # prompt: the director's instruction is the user message, and the
+        # sub-agent's task/permission/tools come from its own config.
+        sub_spec = self._prompts.build(target_agent, user_text=prompt)
         try:
             response = await self._runtime.send_request(
-                target_agent, self._runner, _legacy_spec(target_agent, prompt)
+                target_agent, self._runner, sub_spec
             )
         except TimeoutError:
             rejected_calls.append(
