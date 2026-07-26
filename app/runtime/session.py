@@ -25,6 +25,7 @@ from app.agents.agent import Agent
 from app.agents.registry import AgentRegistry, build_project_registry
 from app.agents.tree_model import AGENT_KIND
 from app.agents.workflow import WorkflowTree
+from app.config_loader import RuntimeConfig
 from app.data.store import ResourceStore
 from app.runtime.budget import BudgetTracker
 from app.runtime.mcp import load_mcp_tools
@@ -70,7 +71,7 @@ class RoundSession:
     tree: WorkflowTree | None
     context: str
     maximal_recursive_calling_depth: int
-    task: asyncio.Task[RoundResult] | None = None
+    task: asyncio.Task[None] | None = None
     state: str = "pending"
     result: RoundResult | None = None
     error: str | None = None
@@ -85,6 +86,7 @@ def create_round_session(
     max_iterations: int | None,
     maximal_recursive_calling_depth: int | None,
     runner_factory: Callable[[], AgentRunner] | None = None,
+    runtime_config: RuntimeConfig | None = None,
 ) -> RoundSession:
     """Construct a fully-wired :class:`RoundSession` without starting execution.
 
@@ -99,12 +101,17 @@ def create_round_session(
         context: Context string passed to ``execute_round``.
         tree: The :class:`WorkflowTree` for workflow mode; ``None`` for chat mode.
         max_iterations: Override for budget max_iterations. If ``None``,
-            defaults to ``2 * tree.node_count()`` for workflow mode or ``4``
-            for chat mode.
+            defaults to ``max_calls_multiplier * tree.node_count()`` for
+            workflow mode or ``4`` for chat mode.
         maximal_recursive_calling_depth: Max recursive call depth. If ``None``,
-            defaults to ``1``.
+            defaults to the config's ``workflow.maximal_recursive_calling_depth``
+            (``1`` without config).
         runner_factory: Optional factory for the :class:`AgentRunner`. If
             ``None``, uses :class:`MockRunner` (LLM-credential-free dry-run).
+        runtime_config: The merged :class:`~app.config_loader.RuntimeConfig`
+            (``config/runtime.yaml`` + project overrides). Supplies the
+            Runtime execution policy and the round budget. ``None`` keeps
+            the built-in defaults (unit-test friendly).
 
     Returns:
         A :class:`RoundSession` in ``"pending"`` state, ready for
@@ -133,30 +140,40 @@ def create_round_session(
                     node_def.key,
                     exc,
                 )
-    runtime = Runtime(
-        {
-            "timeout_seconds": 600,
-            "max_retries": 0,
-            "max_concurrent": 3,
-        }
-    )
+    # Execution policy and round budget come from user configuration
+    # (config/runtime.yaml + project overrides); the values below are the
+    # config-free fallbacks used by unit tests and ad-hoc callers.
+    runner_policy: dict[str, object] = {
+        "timeout_seconds": 600,
+        "max_retries": 0,
+        "max_concurrent": 3,
+    }
+    workflow_policy: dict[str, object] = {}
+    if runtime_config is not None:
+        runner_policy.update(runtime_config.runner)
+        workflow_policy = runtime_config.workflow
+    runtime = Runtime(runner_policy)
 
+    multiplier = int(str(workflow_policy.get("max_calls_multiplier", 2)))
     if max_iterations is not None:
         effective_max_iterations = max_iterations
     elif tree is not None:
-        effective_max_iterations = 2 * tree.node_count()
+        effective_max_iterations = multiplier * tree.node_count()
     else:
         effective_max_iterations = 4
 
     budget = BudgetTracker(
         max_iterations=effective_max_iterations,
-        max_tokens=100_000,
-        max_tool_calls=50,
+        max_tokens=int(str(workflow_policy.get("max_tokens", 100_000))),
+        max_tool_calls=int(str(workflow_policy.get("max_tool_calls", 50))),
     )
 
     runner = runner_factory() if runner_factory is not None else MockRunner()
 
-    depth = maximal_recursive_calling_depth if maximal_recursive_calling_depth is not None else 1
+    if maximal_recursive_calling_depth is not None:
+        depth = maximal_recursive_calling_depth
+    else:
+        depth = int(str(workflow_policy.get("maximal_recursive_calling_depth", 1)))
 
     # Tool surface: the default catalog (builtin schemas + runtime impls)
     # plus any MCP-mounted tools (seam only — no servers configured yet).
@@ -164,14 +181,19 @@ def create_round_session(
     load_mcp_tools(catalog, config=None)
     prompts = PromptBuilder(catalog)
 
-    # The director's data tools: its own permission scoped over the
-    # project's resource store. Without this, every director read/write
-    # tool call would be rejected with no_tools_surface.
+    # Per-agent data tools: every agent (director and sub-agents alike)
+    # gets a dispatcher scoped by its OWN permission over the project's
+    # resource store — a writer's write permission is enforceable at
+    # runtime, not just declared.
+    store = ResourceStore(project_path)
+
+    def tools_factory(agent: Agent) -> ToolDispatcher:
+        scoped = inject_into_tools(store, agent.permission)
+        return ToolDispatcher(cast(ScopedToolsProtocol, scoped), catalog)
+
     director_tools: ToolDispatcher | None = None
     if agent_registry.has("director"):
-        director = agent_registry.get("director")
-        scoped = inject_into_tools(ResourceStore(project_path), director.permission)
-        director_tools = ToolDispatcher(cast(ScopedToolsProtocol, scoped), catalog)
+        director_tools = tools_factory(agent_registry.get("director"))
 
     executor = RoundExecutor(
         runtime=runtime,
@@ -181,6 +203,7 @@ def create_round_session(
         director_tools=director_tools,
         maximal_recursive_calling_depth=depth,
         prompts=prompts,
+        tools_factory=tools_factory,
     )
 
     # time.monotonic() rather than the event-loop clock: this factory is

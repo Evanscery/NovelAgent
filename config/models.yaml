@@ -1,13 +1,24 @@
+# Runner selection: "mock" (deterministic dry-run, no credentials) or
+# "direct" (real OpenAI-compatible endpoint via tiers[default_tier];
+# requires the tier's model_env / api_key_env / base_url_env variables).
+runner: mock
+default_tier: standard
 tiers:
   premium:
     provider: openai_compatible
     model_env: MODEL_HIGH
     rpm: 3
+    api_key_env: API_KEY
+    base_url_env: BASE_URL
   standard:
     provider: openai_compatible
     model_env: MODEL_FAST
     rpm: 10
+    api_key_env: API_KEY
+    base_url_env: BASE_URL
   cheap:
     provider: openai_compatible
     model_env: MODEL_FAST
     rpm: 10
+    api_key_env: API_KEY
+    base_url_env: BASE_URL

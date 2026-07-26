@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -58,11 +59,12 @@ from app.api.schemas import (
     RetryResponse,
     SendChatRequest,
 )
+from app.config_loader import ConfigLoader
 from app.data.project_repo import ProjectRepo
 from app.data.versioning import VersionManager
 from app.project_paths import ProjectPathError, resolve_project_path
+from app.runtime.runner_factory import build_runner
 from app.runtime.runners.base import AgentRunner
-from app.runtime.runners.mock_runner import MockRunner
 from app.runtime.session import create_round_session, run_session
 
 logger = logging.getLogger(__name__)
@@ -78,16 +80,19 @@ _INITIAL_TURN_ID = "0"  # written by scaffold_project (project_init.py)
 # ── Runner factory hook (for tests) ──────────────────────────────────────
 
 
-def _default_chat_runner_factory() -> AgentRunner:
-    """Build the default runner for a director chat reply.
+def _default_chat_runner_factory(root: Path, project_id: str) -> AgentRunner:
+    """Build the runner for a director chat reply from configuration.
 
-    Mirrors ``workflow.py``: :class:`MockRunner` by default so the chat
+    Mirrors ``workflow.py``: delegates to
+    :func:`app.runtime.runner_factory.build_runner` with the project's
+    merged config. The shipped default is ``runner: mock`` so the chat
     path works without LLM credentials (guide 傻瓜式 dry-run).
     """
-    return MockRunner()
+    cfg = ConfigLoader(root).load_project(project_id)
+    return build_runner(cfg.models, cfg.runtime)
 
 
-CHAT_RUNNER_FACTORY = _default_chat_runner_factory
+CHAT_RUNNER_FACTORY: Callable[[Path, str], AgentRunner] = _default_chat_runner_factory
 
 
 # ── Dependencies ─────────────────────────────────────────────────────────
@@ -136,23 +141,30 @@ def _now_iso() -> str:
     return datetime.now(tz=UTC).isoformat()
 
 
-async def _produce_director_reply(user_content: str) -> str:
+async def _produce_director_reply(
+    user_content: str, root: Path, project_path: Path, project_id: str
+) -> str:
     """Run a chat-only director round and return the reply text.
 
     Uses :func:`create_round_session` + :func:`run_session` with
     :class:`MockRunner` by default (via ``CHAT_RUNNER_FACTORY``) so the
     chat path is LLM-credential-free. No workflow tree is needed for
     chat — the director is the sole agent called and its response text
-    is the user-facing reply.
+    is the user-facing reply. The round runs against the real project
+    workspace, so per-project agent overrides apply and the director's
+    tool surface reads/writes the project's resources.
     """
+    cfg = ConfigLoader(root).load_project(project_id)
+    runner_factory = CHAT_RUNNER_FACTORY
     session = create_round_session(
-        project_path=Path("."),
-        project_id="chat",
+        project_path=project_path,
+        project_id=project_id,
         context=user_content,
         tree=None,
         max_iterations=None,
-        maximal_recursive_calling_depth=1,
-        runner_factory=CHAT_RUNNER_FACTORY,
+        maximal_recursive_calling_depth=None,
+        runner_factory=lambda: runner_factory(root, project_id),
+        runtime_config=cfg.runtime,
     )
     result = await run_session(session)
     return result.director_text or "[director unavailable]"
@@ -258,7 +270,7 @@ async def send_chat_message(
 
     # Produce the director reply.
     try:
-        reply_text = await _produce_director_reply(req.content)
+        reply_text = await _produce_director_reply(req.content, root, project_path, project_id)
     except Exception as exc:  # noqa: BLE001 — chat must not crash on runner error
         logger.exception("director reply failed for project %s", project_id)
         reply_text = f"[director error: {type(exc).__name__}]"
@@ -394,7 +406,7 @@ async def retry_chat_message(
     store.append_message(new_user_message)
 
     try:
-        reply_text = await _produce_director_reply(target.content)
+        reply_text = await _produce_director_reply(target.content, root, project_path, project_id)
     except Exception as exc:  # noqa: BLE001
         logger.exception("director retry reply failed for project %s", project_id)
         reply_text = f"[director error: {type(exc).__name__}]"

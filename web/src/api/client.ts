@@ -15,7 +15,7 @@ import axios, { type AxiosInstance } from "axios";
 
 export type ProjectMode = "novel" | "rp";
 export type ChatMessageRole = "user" | "director" | "system";
-export type RoundState = "pending" | "running" | "completed" | "failed";
+export type RoundState = "pending" | "running" | "completed" | "failed" | "stopped";
 
 export interface ProjectSummary {
   id: string;

@@ -37,10 +37,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import uuid
-from dataclasses import dataclass, field
+from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from fastapi import Path as FastPath
@@ -53,11 +52,16 @@ from app.api.schemas import (
     RoundStatusResponse,
     RunWorkflowRequest,
 )
+from app.config_loader import ConfigLoader
 from app.project_paths import ProjectPathError, resolve_project_path
-from app.runtime.round_executor import RoundResult
+from app.runtime.runner_factory import build_runner
 from app.runtime.runners.base import AgentRunner
-from app.runtime.runners.mock_runner import MockRunner
-from app.runtime.session import RoundSession, create_round_session, run_session
+from app.runtime.session import (
+    RoundSession,
+    create_round_session,
+    run_session,
+    stop_session,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,45 +74,38 @@ RoundIdPath = Annotated[str, FastPath(..., description="Round id returned by POS
 # -- In-memory round registry -------------------------------------------------
 
 
-@dataclass
-class RoundRecord:
-    """Mutable per-round record kept in :class:`RoundRegistry`."""
-
-    round_id: str
-    project_id: str
-    state: RoundState = "pending"
-    logs: list[str] = field(default_factory=list)
-    result: RoundResult | None = None
-    error: str | None = None
-    task: asyncio.Task[None] | None = None
-
-    def to_response(self) -> RoundStatusResponse:
-        """Build the wire :class:`RoundStatusResponse`."""
-        result_summary: RoundResultSummary | None = None
-        if self.result is not None:
-            result_summary = RoundResultSummary(
-                completed_agents=list(self.result.completed_agents),
-                finalize_reason=self.result.finalize_reason,
-                total_tokens=self.result.total_tokens,
-                recursive_calls=[
-                    {"agent": r.agent, "reason": r.reason, "depth": r.depth}
-                    for r in self.result.recursive_calls
-                ],
-                rejected_calls=[
-                    {"agent": r.agent, "reason": r.reason} for r in self.result.rejected_calls
-                ],
-            )
-        return RoundStatusResponse(
-            round_id=self.round_id,
-            state=self.state,
-            logs=list(self.logs),
-            result=result_summary,
-            error=self.error,
+def _to_response(session: RoundSession) -> RoundStatusResponse:
+    """Build the wire :class:`RoundStatusResponse` from a session's state."""
+    result_summary: RoundResultSummary | None = None
+    if session.result is not None:
+        result_summary = RoundResultSummary(
+            completed_agents=list(session.result.completed_agents),
+            finalize_reason=session.result.finalize_reason,
+            total_tokens=session.result.total_tokens,
+            recursive_calls=[
+                {"agent": r.agent, "reason": r.reason, "depth": r.depth}
+                for r in session.result.recursive_calls
+            ],
+            rejected_calls=[
+                {"agent": r.agent, "reason": r.reason} for r in session.result.rejected_calls
+            ],
         )
+    return RoundStatusResponse(
+        round_id=session.round_id,
+        state=cast(RoundState, session.state),
+        logs=list(session.logs),
+        result=result_summary,
+        error=session.error,
+    )
 
 
 class RoundRegistry:
-    """In-memory store of active + completed rounds.
+    """In-memory store of active + completed round sessions.
+
+    The session itself (:class:`~app.runtime.session.RoundSession`) is the
+    single source of truth for round state/logs/result/error — the API
+    layer only indexes sessions by round id and renders them to wire
+    responses.
 
     One instance lives on ``app.state.round_registry`` for the lifetime of
     the FastAPI app. Thread-safety is not required — FastAPI runs the
@@ -117,24 +114,22 @@ class RoundRegistry:
     """
 
     def __init__(self) -> None:
-        self._rounds: dict[str, RoundRecord] = {}
+        self._rounds: dict[str, RoundSession] = {}
 
-    def create(self, round_id: str, project_id: str) -> RoundRecord:
-        record = RoundRecord(round_id=round_id, project_id=project_id)
-        self._rounds[round_id] = record
-        return record
+    def add(self, session: RoundSession) -> None:
+        self._rounds[session.round_id] = session
 
-    def get(self, round_id: str) -> RoundRecord | None:
+    def get(self, round_id: str) -> RoundSession | None:
         return self._rounds.get(round_id)
 
-    def get_running_for_project(self, project_id: str) -> RoundRecord | None:
+    def get_running_for_project(self, project_id: str) -> RoundSession | None:
         """Return the first running/pending round for *project_id*, if any."""
-        for record in self._rounds.values():
-            if record.project_id == project_id and record.state in ("pending", "running"):
-                return record
+        for session in self._rounds.values():
+            if session.project_id == project_id and session.state in ("pending", "running"):
+                return session
         return None
 
-    def all(self) -> dict[str, RoundRecord]:
+    def all(self) -> dict[str, RoundSession]:
         return dict(self._rounds)
 
 
@@ -164,22 +159,21 @@ RegistryDep = Annotated[RoundRegistry, Depends(_get_registry)]
 # -- Runner factory hook (for tests) -----------------------------------------
 
 
-def _default_runner_factory() -> AgentRunner:
-    """Build the default runner for a workflow round.
+def _default_runner_factory(root: Path, project_id: str) -> AgentRunner:
+    """Build the runner for a workflow round from configuration.
 
-    The API layer uses the :class:`MockRunner` by default so that
-    ``POST /run`` is safe to call without LLM credentials (per the
-    task's "Mock the Director/agents for tests" constraint and the
-    guide's default — a round with the mock runner is a dry-run
-    that exercises the full pipeline without spending tokens). The
-    frontend RunView can switch to a real runner via a future config
-    route; for now the runner is hard-wired to MockRunner.
+    Delegates to :func:`app.runtime.runner_factory.build_runner` with the
+    project's merged config (``config/models.yaml`` + per-project
+    overrides). The shipped default is ``runner: mock`` — LLM-credential
+    free; switching ``config/models.yaml`` to ``runner: direct`` sends
+    rounds to the configured OpenAI-compatible endpoint.
     """
-    return MockRunner()
+    cfg = ConfigLoader(root).load_project(project_id)
+    return build_runner(cfg.models, cfg.runtime)
 
 
 # Module-level hook so tests can monkeypatch the runner factory.
-RUNNER_FACTORY = _default_runner_factory
+RUNNER_FACTORY: Callable[[Path, str], AgentRunner] = _default_runner_factory
 
 
 # -- Helpers -----------------------------------------------------------------
@@ -208,33 +202,21 @@ def _load_workflow_tree(project_path: Path) -> WorkflowTree:
     return load_workflow(Path(__file__).resolve().parents[2] / "agents" / "default_workflow.yaml")
 
 
-async def _run_round_background(record: RoundRecord, session: RoundSession) -> None:
-    """Background coroutine: run a round via :func:`run_session` and sync to *record*.
+async def _run_round_background(session: RoundSession) -> None:
+    """Background coroutine: run a round via :func:`run_session`.
 
-    The :class:`RoundSession` accumulates state/logs/result/error; this
-    wrapper mirrors those into the :class:`RoundRecord` so the API layer's
-    in-memory registry stays in sync.
+    :func:`run_session` owns all state/log/result/error bookkeeping on the
+    session; this wrapper only prevents the exception from crashing the
+    event loop's task machinery.
     """
-    record.state = "running"
-    record.logs.append(f"round {record.round_id} started for project {record.project_id}")
     try:
-        result = await run_session(session)
-        record.result = result
-        record.state = "completed"
-        record.logs.append(
-            f"round {record.round_id} completed: "
-            f"{len(result.completed_agents)} agents, reason={result.finalize_reason}"
-        )
+        await run_session(session)
     except asyncio.CancelledError:
-        record.state = "failed"
-        record.error = "round stopped by user"
-        record.logs.append(f"round {record.round_id} cancelled")
+        # run_session already marked the session "stopped".
         raise
-    except Exception as exc:  # noqa: BLE001 — background task must not crash loop
-        record.state = "failed"
-        record.error = f"{type(exc).__name__}: {exc}"
-        record.logs.append(f"round {record.round_id} failed: {record.error}")
-        logger.exception("workflow round %s failed", record.round_id)
+    except Exception:  # noqa: BLE001 — background task must not crash loop
+        # run_session already marked the session "failed" and logged it.
+        pass
 
 
 # -- Routes ------------------------------------------------------------------
@@ -271,22 +253,29 @@ async def run_workflow(
 
     tree = _load_workflow_tree(project_path)
 
-    session = create_round_session(
-        project_path=project_path,
-        project_id=project_id,
-        context=req.context,
-        tree=tree,
-        max_iterations=req.max_iterations,
-        maximal_recursive_calling_depth=req.maximal_recursive_calling_depth,
-        runner_factory=RUNNER_FACTORY,
-    )
+    try:
+        cfg = ConfigLoader(root).load_project(project_id)
+        runner_factory = RUNNER_FACTORY
 
-    round_id = f"round_{uuid.uuid4().hex[:8]}"
-    record = registry.create(round_id, project_id)
+        session = create_round_session(
+            project_path=project_path,
+            project_id=project_id,
+            context=req.context,
+            tree=tree,
+            max_iterations=req.max_iterations,
+            maximal_recursive_calling_depth=req.maximal_recursive_calling_depth,
+            runner_factory=lambda: runner_factory(root, project_id),
+            runtime_config=cfg.runtime,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Round configuration invalid: {exc}",
+        ) from exc
+    registry.add(session)
 
-    task = asyncio.create_task(_run_round_background(record, session))
-    record.task = task
-    return record.to_response()
+    session.task = asyncio.create_task(_run_round_background(session))
+    return _to_response(session)
 
 
 @router.get("/{project_id}/round/{round_id}", response_model=RoundStatusResponse)
@@ -298,13 +287,13 @@ def get_round_status(
 ) -> RoundStatusResponse:
     """Get the status / logs / result of a round."""
     _resolve_project(root, project_id)  # 404 if project missing
-    record = registry.get(round_id)
-    if record is None or record.project_id != project_id:
+    session = registry.get(round_id)
+    if session is None or session.project_id != project_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Round {round_id!r} not found for project {project_id!r}",
         )
-    return record.to_response()
+    return _to_response(session)
 
 
 @router.post("/{project_id}/stop", response_model=RoundStatusResponse)
@@ -315,20 +304,19 @@ def stop_workflow(
 ) -> RoundStatusResponse:
     """Stop the running round for *project_id* (cancel its background task).
 
-    Returns the (now ``failed`` / cancelled) round status. If no round is
+    Returns the (now ``stopped`` / stopping) round status. If no round is
     running, returns ``409``.
     """
     _resolve_project(root, project_id)
-    record = registry.get_running_for_project(project_id)
-    if record is None:
+    session = registry.get_running_for_project(project_id)
+    if session is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Project {project_id!r} has no running round to stop.",
         )
-    if record.task is not None and not record.task.done():
-        record.task.cancel()
-        record.logs.append(f"stop requested for round {record.round_id}")
-    return record.to_response()
+    stop_session(session)
+    session.logs.append(f"stop requested for round {session.round_id}")
+    return _to_response(session)
 
 
 @router.get("/{project_id}/export")
@@ -410,7 +398,6 @@ def import_workflow(
 
 
 __all__ = [
-    "RoundRecord",
     "RoundRegistry",
     "router",
 ]

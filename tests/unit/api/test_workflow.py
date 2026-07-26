@@ -43,7 +43,7 @@ def app_root(tmp_path: Path) -> Path:
 @pytest.fixture()
 def client(app_root: Path) -> TestClient:
     # Swap in the MockRunner so no LLM is contacted.
-    workflow_routes.RUNNER_FACTORY = lambda: MockRunner()
+    workflow_routes.RUNNER_FACTORY = lambda root, project_id: MockRunner()
     app = create_app(app_root)
     return TestClient(app)
 
@@ -182,35 +182,41 @@ class TestStopWorkflow:
         request runs in a fresh portal, so a real long-running task
         would be cancelled when the POST /run portal closes. To reliably
         exercise the stop path we inject a synthetic running
-        :class:`RoundRecord` (with a pending task that the test controls)
+        :class:`RoundSession` (with a pending task that the test controls)
         into the registry, then call /stop and assert the task was
-        cancelled + the record transitioned to ``failed``.
+        cancelled via ``stop_session``.
         """
         import asyncio
 
-        from app.api.routes.workflow import RoundRecord, RoundRegistry
+        from app.api.routes.workflow import RoundRegistry
+        from app.runtime.session import create_round_session
 
         # Reach into app.state to get the live registry the routes use.
         app = client.app  # type: ignore[attr-defined]
         registry: RoundRegistry = app.state.round_registry
 
         # Inject a synthetic running round whose task is a pending sleep.
-        round_id = "round_synthetic"
-        record = RoundRecord(round_id=round_id, project_id=project_id, state="running")
+        session = create_round_session(
+            project_path=app_root / "workspaces" / project_id,
+            project_id=project_id,
+            context="",
+            tree=None,
+            max_iterations=None,
+            maximal_recursive_calling_depth=None,
+        )
+        session.round_id = "round_synthetic"
+        session.state = "running"
 
         async def _long_round() -> None:
             await asyncio.sleep(30)
 
-        # Create the task on the registry's own loop. The registry itself
-        # doesn't own a loop; we create one fresh for the test task. The
-        # stop endpoint calls ``task.cancel()`` which works regardless of
-        # which loop the task is on (as long as it isn't done).
+        # Create the task on a fresh loop the test controls. The stop
+        # endpoint calls ``stop_session`` -> ``task.cancel()`` which works
+        # regardless of which loop the task is on (as long as it isn't done).
         loop = asyncio.new_event_loop()
         try:
-            record.task = loop.create_task(_long_round())
-            registry.create(round_id, project_id)  # type: ignore[unused-coroutine]
-            # Overwrite the record created by `create` with our synthetic one.
-            registry._rounds[round_id] = record  # noqa: SLF001 — test-only injection
+            session.task = loop.create_task(_long_round())
+            registry.add(session)
             # Drive the loop once so the task is actually awaiting.
             loop.call_soon(loop.stop)
             loop.run_forever()
@@ -218,10 +224,10 @@ class TestStopWorkflow:
             stop = client.post(f"/api/workflow/{project_id}/stop")
             assert stop.status_code == 200, stop.text
             body = stop.json()
-            assert body["round_id"] == round_id
-            # The cancel was requested (record.task.cancel() was called).
-            assert record.task is not None
-            assert record.task.cancelled() or record.task.cancelling() > 0
+            assert body["round_id"] == "round_synthetic"
+            # The cancel was requested (stop_session called task.cancel()).
+            assert session.task is not None
+            assert session.task.cancelled() or session.task.cancelling() > 0
         finally:
             loop.close()
 
@@ -239,18 +245,28 @@ class TestStopWorkflow:
     ) -> None:
         """Starting a second round while one is running returns 409.
 
-        We inject a synthetic running :class:`RoundRecord` into the
+        We inject a synthetic running :class:`RoundSession` into the
         registry (same reason as ``test_stop_running_round`` — the
         :class:`TestClient` portal closes after each request so a real
         long task cannot span two requests), then POST /run and assert
         the 409 conflict.
         """
-        from app.api.routes.workflow import RoundRecord, RoundRegistry
+        from app.api.routes.workflow import RoundRegistry
+        from app.runtime.session import create_round_session
 
         app = client.app  # type: ignore[attr-defined]
         registry: RoundRegistry = app.state.round_registry
-        record = RoundRecord(round_id="round_blocker", project_id=project_id, state="running")
-        registry._rounds["round_blocker"] = record  # noqa: SLF001 — test-only injection
+        session = create_round_session(
+            project_path=app_root / "workspaces" / project_id,
+            project_id=project_id,
+            context="",
+            tree=None,
+            max_iterations=None,
+            maximal_recursive_calling_depth=None,
+        )
+        session.round_id = "round_blocker"
+        session.state = "running"
+        registry.add(session)
 
         second = client.post(f"/api/workflow/{project_id}/run", json={})
         assert second.status_code == 409

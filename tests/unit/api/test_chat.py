@@ -47,7 +47,7 @@ def app_root(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def client(app_root: Path) -> TestClient:
-    chat_routes.CHAT_RUNNER_FACTORY = lambda: MockRunner()
+    chat_routes.CHAT_RUNNER_FACTORY = lambda root, project_id: MockRunner()
     app = create_app(app_root)
     return TestClient(app)
 

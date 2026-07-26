@@ -234,3 +234,178 @@ class TestDirectorToolWiring:
         assert not any(
             "tool_error" in record.reason for record in result.rejected_calls
         ), f"director read errored: {result.rejected_calls}"
+
+
+class TestRuntimeConfigWiring:
+    def test_runtime_config_supplies_budget_and_depth(self, tmp_path: Path) -> None:
+        """create_round_session maps config/runtime.yaml values instead of
+        hard-coding policy: budget tokens/tool-calls, iteration multiplier
+        and recursion depth all come from the RuntimeConfig."""
+        from app.config_loader import RuntimeConfig
+
+        cfg = RuntimeConfig(
+            runner={"timeout_seconds": 30, "max_retries": 2, "max_concurrent": 4},
+            workflow={
+                "maximal_recursive_calling_depth": 3,
+                "max_calls_multiplier": 5,
+                "max_tokens": 1234,
+                "max_tool_calls": 7,
+            },
+        )
+        tree = _make_tree({})
+        session = create_round_session(
+            project_path=tmp_path,
+            project_id="proj-1",
+            context="ctx",
+            tree=tree,
+            max_iterations=None,
+            maximal_recursive_calling_depth=None,
+            runtime_config=cfg,
+        )
+        snap = session.budget.snapshot()
+        assert snap.max_iterations == 5 * tree.node_count()
+        assert snap.max_tokens == 1234
+        assert snap.max_tool_calls == 7
+        assert session.maximal_recursive_calling_depth == 3
+
+    def test_none_config_keeps_defaults(self, tmp_path: Path) -> None:
+        tree = _make_tree({})
+        session = create_round_session(
+            project_path=tmp_path,
+            project_id="proj-1",
+            context="ctx",
+            tree=tree,
+            max_iterations=None,
+            maximal_recursive_calling_depth=None,
+        )
+        snap = session.budget.snapshot()
+        assert snap.max_iterations == 2 * tree.node_count()
+        assert snap.max_tokens == 100_000
+        assert snap.max_tool_calls == 50
+        assert session.maximal_recursive_calling_depth == 1
+
+
+class TestSubAgentToolSurface:
+    """Sub-agents get their own permission-scoped tool surface."""
+
+    @staticmethod
+    def _call_agent_runner(sub_tool_call: object) -> object:
+        from app.runtime.prompt_builder import RequestSpec
+        from app.runtime.runners.base import (
+            AgentResponse,
+            AgentRunner,
+            RunnerAgent,
+            TokenUsage,
+            ToolCall,
+        )
+
+        class _Runner(AgentRunner):
+            def __init__(self) -> None:
+                self.director_turns = 0
+
+            async def run(self, agent: RunnerAgent, request: RequestSpec) -> AgentResponse:
+                if agent.id == "director":
+                    self.director_turns += 1
+                    if self.director_turns == 1:
+                        return AgentResponse(
+                            text="调度 writer",
+                            tool_calls=[
+                                ToolCall(
+                                    name="call_agent",
+                                    args={"agent_name": "writer", "prompt": "写一段"},
+                                    id="call_writer",
+                                )
+                            ],
+                            usage=TokenUsage(10, 5),
+                        )
+                    return AgentResponse(
+                        text="完成",
+                        tool_calls=[ToolCall(name="finalize", args={})],
+                        usage=TokenUsage(10, 5),
+                    )
+                # The writer emits one tool call of the test's choosing.
+                assert isinstance(sub_tool_call, ToolCall)
+                return AgentResponse(
+                    text="正文",
+                    tool_calls=[sub_tool_call],
+                    usage=TokenUsage(5, 5),
+                )
+
+        return _Runner()
+
+    @pytest.mark.asyncio
+    async def test_sub_agent_write_lands_on_disk(self, tmp_path: Path) -> None:
+        """A writer's ``write`` tool call is dispatched through its own
+        permission scope and the file actually lands in the project."""
+        from app.data.store import ResourceStore
+        from app.runtime.runners.base import AgentRunner, ToolCall
+        from app.runtime.session import run_session
+
+        runner = self._call_agent_runner(
+            ToolCall(
+                name="write",
+                args={
+                    "resource_type": "notes",
+                    "filename": "draft.md",
+                    "content": "写下的正文",
+                },
+                id="w1",
+            )
+        )
+        assert isinstance(runner, AgentRunner)
+        session = create_round_session(
+            project_path=tmp_path,
+            project_id="proj-1",
+            context="ctx",
+            tree=_make_tree({}),
+            max_iterations=10,
+            maximal_recursive_calling_depth=None,
+            runner_factory=lambda: runner,
+        )
+        result = await run_session(session)
+
+        assert result.finalize_reason == "explicit_finalize"
+        # completed_agents lists the director exactly once (regression:
+        # it used to be appended every loop iteration).
+        assert result.completed_agents.count("director") == 1
+        assert "writer" in result.completed_agents
+        # The write is on disk under the project's notes resource.
+        store = ResourceStore(tmp_path)
+        notes = store.create_resource("notes", "notes")
+        assert "写下的正文" in store.read(notes, "draft.md")
+
+    @pytest.mark.asyncio
+    async def test_sub_agent_overreach_write_is_rejected(self, tmp_path: Path) -> None:
+        """A writer writing a resource outside its permission is rejected
+        with ``tool_error: PermissionDenied`` and nothing lands on disk."""
+        from app.runtime.runners.base import AgentRunner, ToolCall
+        from app.runtime.session import run_session
+
+        runner = self._call_agent_runner(
+            ToolCall(
+                name="write",
+                args={
+                    "resource_type": "worldbook",
+                    "filename": "lore.md",
+                    "content": "越权写入",
+                },
+                id="w2",
+            )
+        )
+        assert isinstance(runner, AgentRunner)
+        session = create_round_session(
+            project_path=tmp_path,
+            project_id="proj-1",
+            context="ctx",
+            tree=_make_tree({}),
+            max_iterations=10,
+            maximal_recursive_calling_depth=None,
+            runner_factory=lambda: runner,
+        )
+        result = await run_session(session)
+
+        assert any(
+            record.agent == "writer" and "tool_error: PermissionDenied" in record.reason
+            for record in result.rejected_calls
+        ), f"expected a PermissionDenied rejection: {result.rejected_calls}"
+        assert not (tmp_path / "resources" / "worldbook" / "lore.md").exists()

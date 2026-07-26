@@ -7,7 +7,9 @@ permission:
   read: [state, outline, short_goal, notes]
   write: []
 model: premium
-tools: [read, write, list_files, glob_files, grep_lines, read_lines, call_agent, await, finalize]
+# No write tool: the director decides and delegates; data writes belong to
+# the writer/maintainer agents (its write permission is empty anyway).
+tools: [read, list_files, glob_files, grep_lines, read_lines, call_agent, await, finalize]
 head: null
 tail: null
 allow_recursive: true

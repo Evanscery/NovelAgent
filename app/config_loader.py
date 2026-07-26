@@ -32,17 +32,32 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class TierConfig(BaseModel):
-    """One model tier (premium/standard/cheap)."""
+    """One model tier (premium/standard/cheap).
+
+    ``model_env`` / ``api_key_env`` / ``base_url_env`` name the environment
+    variables holding the actual model name / API key / base URL — the
+    config file never carries credentials itself.
+    """
 
     provider: str = "openai_compatible"
     model_env: str = "MODEL_HIGH"
     rpm: int = 10
+    api_key_env: str = "API_KEY"
+    base_url_env: str = "BASE_URL"
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
 class ModelsConfig(BaseModel):
-    """config/models.yaml — provider types + per-agent model tier."""
+    """config/models.yaml — runner selection, provider tiers, per-agent model.
 
+    ``runner`` selects the LLM backend: ``"mock"`` (deterministic, no
+    credentials — the dry-run default) or ``"direct"`` (a real
+    OpenAI-compatible endpoint via :class:`~app.runtime.runners.direct_runner.DirectRunner`,
+    configured by ``tiers[default_tier]``).
+    """
+
+    runner: str = "mock"
+    default_tier: str = "standard"
     tiers: dict[str, TierConfig] = Field(default_factory=dict)
     agent_models: dict[str, str] = Field(default_factory=dict)
 

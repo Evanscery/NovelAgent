@@ -7,3 +7,5 @@ runner:
 workflow:
   maximal_recursive_calling_depth: 1
   max_calls_multiplier: 2  # max agent calls = max_calls_multiplier × node count
+  max_tokens: 100000       # per-round token budget
+  max_tool_calls: 50       # per-round tool-call budget

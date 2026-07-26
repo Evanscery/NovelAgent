@@ -109,8 +109,8 @@ def client(app_root: Path) -> TestClient:
     ``CHAT_RUNNER_FACTORY`` are module-level hooks; swapping them before
     building the app guarantees no LLM is contacted on any path.
     """
-    workflow_routes.RUNNER_FACTORY = lambda: MockRunner()
-    chat_routes.CHAT_RUNNER_FACTORY = lambda: MockRunner()
+    workflow_routes.RUNNER_FACTORY = lambda root, project_id: MockRunner()
+    chat_routes.CHAT_RUNNER_FACTORY = lambda root, project_id: MockRunner()
     app = create_app(app_root)
     return TestClient(app)
 

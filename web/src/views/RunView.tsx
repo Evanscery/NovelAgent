@@ -19,6 +19,7 @@ function StateBadge({ state }: { state: string }): ReactNode {
     running: "运行中",
     completed: "完成",
     failed: "失败",
+    stopped: "已停止",
   }[state] ?? state;
   return <span className={cls}>{label}</span>;
 }
@@ -40,7 +41,8 @@ export default function RunView(): ReactNode {
   const projectId = useProjectStore((s) => s.activeProject?.id ?? null);
   const logRef = useRef<HTMLDivElement>(null);
 
-  const isTerminal = round?.state === "completed" || round?.state === "failed";
+  const isTerminal =
+    round?.state === "completed" || round?.state === "failed" || round?.state === "stopped";
   const shouldPoll = polling && !isTerminal && round !== null;
 
   useEffect(() => {

@@ -118,7 +118,7 @@ class RoundResultSummary(BaseModel):
     rejected_calls: list[dict[str, object]] = Field(default_factory=list)
 
 
-RoundState = Literal["pending", "running", "completed", "failed"]
+RoundState = Literal["pending", "running", "completed", "failed", "stopped"]
 
 
 class RoundStatusResponse(BaseModel):

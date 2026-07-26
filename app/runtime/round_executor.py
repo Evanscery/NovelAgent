@@ -57,6 +57,7 @@ the director agent is called (single-shot, no tool-call loop).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -166,6 +167,12 @@ class RoundExecutor:
                   for dispatching data/catalog tool calls. May be
                   ``None`` for chat-only rounds where the director has
                   no data tools.
+        tools_factory: Optional factory building a per-agent
+                  :class:`ToolDispatcher` scoped by that agent's own
+                  permission. When provided, a sub-agent's tool calls
+                  are actually dispatched (its declared write permission
+                  takes effect); without it they are rejected with
+                  ``no_tools_surface``.
         maximal_recursive_calling_depth: The max allowed
                   ``cur_depth - target_depth`` for a recursive
                   ``call_agent`` call. Default 1 (self-call Δ=0 and
@@ -181,6 +188,7 @@ class RoundExecutor:
         director_tools: ToolDispatcher | None = None,
         maximal_recursive_calling_depth: int = 1,
         prompts: PromptBuilder | None = None,
+        tools_factory: Callable[[Agent], ToolDispatcher] | None = None,
     ) -> None:
         self._runtime = runtime
         self._runner = runner
@@ -189,6 +197,7 @@ class RoundExecutor:
         self._director_tools = director_tools
         self._max_depth = maximal_recursive_calling_depth
         self._prompts = prompts if prompts is not None else PromptBuilder(build_default_catalog())
+        self._tools_factory = tools_factory
 
     async def execute_round(
         self,
@@ -311,7 +320,8 @@ class RoundExecutor:
             history.append(Message(role="assistant", content=response.text))
             tokens = response.usage.prompt_tokens + response.usage.completion_tokens
             total_tokens += tokens
-            completed.append("director")
+            if "director" not in completed:
+                completed.append("director")
 
             # Consume budget for the director turn.
             try:
@@ -608,17 +618,70 @@ class RoundExecutor:
 
         tokens = response.usage.prompt_tokens + response.usage.completion_tokens
 
+        # Execute the sub-agent's own tool calls through a dispatcher
+        # scoped by ITS permission — this is where a writer's declared
+        # write permission actually takes effect. The sub-agent is
+        # single-shot: tool results are surfaced to the director in the
+        # feedback, not fed back into the sub-agent (known limitation).
+        tool_lines: list[str] = []
+        if response.tool_calls:
+            sub_tools = (
+                self._tools_factory(target_agent) if self._tools_factory is not None else None
+            )
+            for sub_tc in response.tool_calls:
+                tool_lines.append(
+                    self._dispatch_sub_agent_tool(
+                        sub_tc,
+                        agent_name=agent_name,
+                        sub_tools=sub_tools,
+                        rejected_calls=rejected_calls,
+                    )
+                )
+
         # Store the result under a handle so a later `await` can retrieve it.
         handle = f"task_{len(pending) + 1}"
         pending[handle] = response.text
+
+        feedback = f"[call_agent {agent_name}] -> handle={handle}: {response.text}"
+        if tool_lines:
+            feedback += "\n" + "\n".join(tool_lines)
 
         return _ToolDispatchOutcome(
             completed_agent=agent_name,
             tokens=tokens,
             tool_calls=len(response.tool_calls),
-            feedback=f"[call_agent {agent_name}] -> handle={handle}: {response.text}",
+            feedback=feedback,
             handle=handle,
         )
+
+    def _dispatch_sub_agent_tool(
+        self,
+        tool_call: ToolCall,
+        *,
+        agent_name: str,
+        sub_tools: ToolDispatcher | None,
+        rejected_calls: list[RejectedCallRecord],
+    ) -> str:
+        """Dispatch one sub-agent tool call; return its feedback line."""
+        name = tool_call.name
+        if sub_tools is None:
+            rejected_calls.append(
+                RejectedCallRecord(agent=agent_name, reason=f"no_tools_surface: {name}")
+            )
+            return f"[{agent_name}:{name}] 拒绝: 无工具表面"
+        try:
+            result: ToolResult = sub_tools.dispatch(tool_call)
+        except UnknownToolError:
+            rejected_calls.append(
+                RejectedCallRecord(agent=agent_name, reason=f"unknown_tool: {name}")
+            )
+            return f"[{agent_name}:{name}] 拒绝: 未知工具"
+        except Exception as exc:  # noqa: BLE001 -- PermissionDenied etc.
+            rejected_calls.append(
+                RejectedCallRecord(agent=agent_name, reason=f"tool_error: {type(exc).__name__}")
+            )
+            return f"[{agent_name}:{name}] 拒绝: {type(exc).__name__}: {exc}"
+        return f"[{agent_name}:{name}] -> {result.output}"
 
     def _dispatch_await(
         self,
