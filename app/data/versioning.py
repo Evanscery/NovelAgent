@@ -1,25 +1,12 @@
-"""Git-backed version graph: Turn commit / branch / projection / rollback / atomic transaction."""
+"""Git-backed version operations: Turn rollback + per-resource history."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
 import git
 
 from .project_repo import CommitInfo, ProjectRepo
-
-
-@dataclass(frozen=True)
-class Snapshot:
-    """Point-in-time snapshot of a project's resource files at a given turn."""
-
-    turn_id: str
-    commit_sha: str
-    files: dict[str, str]  # relative-path → file content at that version
-
-
-_MAX_SNAPSHOT_FILE_SIZE = 1_000_000  # 1 MB per-file safety cap
 
 
 class VersionManager:
@@ -99,67 +86,6 @@ class VersionManager:
         # Check out the new branch
         self._repo.checkout(branch_name)
         return branch_name
-
-    # ------------------------------------------------------------------
-    # Snapshot
-    # ------------------------------------------------------------------
-
-    def get_version(self, turn_id: str) -> Snapshot:
-        """Return a snapshot of the resource state at the given turn.
-
-        Reads every tracked file in the project root at the target commit
-        and returns their content in a ``Snapshot`` dict.
-        """
-        repo = git.Repo(str(self._repo.project_root))
-        sha = self._repo.resolve_turn(turn_id)
-
-        # List all tracked files at that commit
-        raw_ls = repo.git.ls_tree("-r", "--name-only", sha).splitlines()
-        paths = [p.strip() for p in raw_ls if p.strip()]
-
-        files: dict[str, str] = {}
-        for rel_path in paths:
-            try:
-                content = repo.git.show(f"{sha}:{rel_path}")
-                if len(content) > _MAX_SNAPSHOT_FILE_SIZE:
-                    content = content[:_MAX_SNAPSHOT_FILE_SIZE] + "\n... [truncated]"
-                files[rel_path] = content
-            except git.GitCommandError:
-                # File may have been deleted or binary — skip silently
-                continue
-
-        return Snapshot(turn_id=turn_id, commit_sha=sha, files=files)
-
-    # ------------------------------------------------------------------
-    # Diff
-    # ------------------------------------------------------------------
-
-    def diff(self, turn_a: str, turn_b: str) -> str:
-        """Return a unified diff between two commits (identified by turn ID or SHA).
-
-        Returns a string containing the ``git diff`` output (empty string
-        if there are no differences).
-        """
-        repo = git.Repo(str(self._repo.project_root))
-        sha_a = self._repo.resolve_turn(turn_a)
-        sha_b = self._repo.resolve_turn(turn_b)
-        result: str = repo.git.diff(sha_a, sha_b)
-        return result
-
-    # ------------------------------------------------------------------
-    # Delegated ProjectRepo accessors (keep VersionManager as the public
-    # high-level interface)
-    # ------------------------------------------------------------------
-
-    @property
-    def _project_repo(self) -> ProjectRepo:
-        return self._repo
-
-    def list_branches(self) -> list[str]:
-        return self._repo.list_branches()
-
-    def list_history(self, max_count: int = 50) -> list[CommitInfo]:
-        return self._repo.list_history(max_count=max_count)
 
     def list_history_for_resource(
         self, resource_type: str, max_count: int = 50

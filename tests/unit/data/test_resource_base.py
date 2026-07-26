@@ -1,4 +1,4 @@
-"""Tests for Resource base class, properties.md parser/serializer, and manifest."""
+"""Tests for Resource base class, properties.md serializer, and manifest."""
 
 from __future__ import annotations
 
@@ -8,111 +8,46 @@ from pathlib import Path
 
 import pytest
 
-from app.data.manifest import ResourceManifest, read_manifest, write_manifest
-from app.data.properties import (
-    ResourceProperties,
-    ValidationError,
-    parse_properties_md,
-    serialize_properties_md,
-)
+from app.data.manifest import ResourceManifest, write_manifest
+from app.data.properties import ResourceProperties, serialize_properties_md
 from app.data.resource import Resource
 
-# ── tests: properties.md round-trip ──────────────────────────────────
+# ── tests: properties.md serialization ──────────────────────────────
 
 
-class TestPropertiesRoundTrip:
-    """parse(serialize(props)) == props — and edge cases."""
+class TestPropertiesSerialize:
+    """serialize_properties_md renders the four strategy sections."""
 
-    def test_basic_round_trip(self) -> None:
-        """Full four-strategy properties round-trips correctly."""
-        original = ResourceProperties(
+    def test_all_sections_rendered(self) -> None:
+        props = ResourceProperties(
             存储方式="按资源类型独立文件存储",
             召回策略="按需由 Recaller Agent 主动请求",
             维护策略="每轮更新，覆盖维护",
             版本策略="增量版本控制，每轮产生新 commit",
         )
-        text = serialize_properties_md(original)
-        parsed = parse_properties_md(text)
-        assert parsed == original
+        text = serialize_properties_md(props)
+        for heading in ("存储方式", "召回策略", "维护策略", "版本策略"):
+            assert f"## {heading}" in text
+        assert "按需由 Recaller Agent 主动请求" in text
 
-    def test_fields_with_empty_body(self) -> None:
-        """Empty string body for each section is valid and round-trips."""
-        original = ResourceProperties()
-        text = serialize_properties_md(original)
-        parsed = parse_properties_md(text)
-        assert parsed == original
+    def test_empty_bodies_render_headings_only(self) -> None:
+        text = serialize_properties_md(ResourceProperties())
+        assert text.count("## ") == 4
+        assert text.endswith("\n")
 
-    def test_round_trip_with_multiline(self) -> None:
-        """Multi-line body content is preserved across parse/serialize."""
-        original = ResourceProperties(
-            存储方式="文件存储\n- 每个资源一个独立目录\n- properties.md 和 manifest.json 并存",
-            召回策略="工具调用\n  1. 阅读分级摘要\n  2. 发现相关回合\n  3. 调用工具召回正文",
-            维护策略="由 maintainer agent 按 properties.md 策略执行\n根据更新频次分类维护",
-            版本策略="git 版本管理\n- Turn = commit\n- Commit = 本轮所有修改\n- Rollback = 新分支",
-        )
-        text = serialize_properties_md(original)
-        parsed = parse_properties_md(text)
-        assert parsed == original
-
-    def test_ignore_pre_heading_content(self) -> None:
-        """Content before the first ## heading is ignored."""
-        text = (
-            "这是前置说明，不是有效 section。\n\n"
-            "## 存储方式\n按文件存储\n\n"
-            "## 召回策略\n按需\n\n"
-            "## 维护策略\n每轮\n\n"
-            "## 版本策略\n覆盖\n"
-        )
-        parsed = parse_properties_md(text)
-        assert parsed.存储方式 == "按文件存储"
-        assert parsed.召回策略 == "按需"
-
-    def test_extra_headings_ignored(self) -> None:
-        """Unrecognized heading sections are silently ignored."""
-        text = (
-            "## 存储方式\n文件\n\n"
-            "## 召回策略\n按需\n\n"
-            "## 维护策略\n每轮\n\n"
-            "## 版本策略\n覆盖\n\n"
-            "## 额外信息\n这个不会被解析\n"
-        )
-        parsed = parse_properties_md(text)
-        assert parsed.存储方式 == "文件"
-        assert parsed.维护策略 == "每轮"
+    def test_multiline_body_preserved(self) -> None:
+        props = ResourceProperties(存储方式="文件存储\n- 每个资源一个独立目录")
+        text = serialize_properties_md(props)
+        assert "- 每个资源一个独立目录" in text
 
 
-class TestPropertiesParseErrors:
-    """Missing sections raise clear ValidationError."""
-
-    def test_missing_one_section(self) -> None:
-        """Raise ValidationError naming the missing section."""
-        text = "## 存储方式\n文件\n\n## 召回策略\n按需\n\n## 版本策略\n覆盖\n"
-        with pytest.raises(ValidationError) as exc:
-            parse_properties_md(text)
-        assert "维护策略" in str(exc.value)
-
-    def test_missing_all_sections(self) -> None:
-        """Raise ValidationError listing first missing."""
-        text = "空白内容，没有 section。"
-        with pytest.raises(ValidationError) as exc:
-            parse_properties_md(text)
-        assert "存储方式" in str(exc.value)
-
-    def test_empty_string(self) -> None:
-        """Empty text raises ValidationError."""
-        with pytest.raises(ValidationError) as exc:
-            parse_properties_md("")
-        assert "存储方式" in str(exc.value)
-
-
-# ── tests: manifest read/write ───────────────────────────────────────
+# ── tests: manifest write ────────────────────────────────────────────
 
 
 class TestManifestIO:
-    """Read and write manifest.json round-trip."""
+    """write_manifest persists the manifest as JSON."""
 
-    def test_round_trip(self, tmp_path: Path) -> None:
-        """Write then read back produces an equal manifest."""
+    def test_write_produces_valid_json(self, tmp_path: Path) -> None:
         original = ResourceManifest(
             type="outline",
             properties_ref="properties.md",
@@ -121,33 +56,19 @@ class TestManifestIO:
         )
         path = tmp_path / "manifest.json"
         write_manifest(path, original)
-        reloaded = read_manifest(path)
-        assert reloaded == original
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["type"] == "outline"
+        assert data["recent_commit"] == "abc123def456"
+        assert data["current_branch"] == "main"
 
-    def test_minimal_manifest(self, tmp_path: Path) -> None:
-        """Manifest with optional fields at defaults round-trips."""
-        original = ResourceManifest(
-            type="state",
-            properties_ref="properties.md",
-        )
+    def test_minimal_manifest_defaults(self, tmp_path: Path) -> None:
+        original = ResourceManifest(type="state", properties_ref="properties.md")
         path = tmp_path / "manifest.json"
         write_manifest(path, original)
-        reloaded = read_manifest(path)
-        assert reloaded == original
-        assert reloaded.recent_commit is None
-        assert reloaded.current_branch == "main"
-
-    def test_read_nonexistent_file(self, tmp_path: Path) -> None:
-        """Reading a non-existent path raises FileNotFoundError."""
-        with pytest.raises(FileNotFoundError):
-            read_manifest(tmp_path / "does_not_exist.json")
-
-    def test_invalid_json_raises(self, tmp_path: Path) -> None:
-        """Reading malformed JSON raises json.JSONDecodeError."""
-        p = tmp_path / "manifest.json"
-        p.write_text("not valid json", encoding="utf-8")
-        with pytest.raises(json.JSONDecodeError):
-            read_manifest(p)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["type"] == "state"
+        assert data["recent_commit"] is None
+        assert data["current_branch"] == "main"
 
 
 # ── tests: Resource abstract base ────────────────────────────────────

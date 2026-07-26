@@ -20,19 +20,6 @@ class ResourceManifest:
     current_branch: str = "main"
 
 
-def read_manifest(path: Path) -> ResourceManifest:
-    """Read a ``manifest.json`` file and return a ``ResourceManifest``.
-
-    Args:
-        path: Path to the ``manifest.json`` file.
-
-    Returns:
-        A ``ResourceManifest`` instance.
-    """
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    return ResourceManifest(**raw)
-
-
 def write_manifest(path: Path, manifest: ResourceManifest) -> None:
     """Write a ``ResourceManifest`` to a ``manifest.json`` file.
 

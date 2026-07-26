@@ -9,21 +9,11 @@ from __future__ import annotations
 
 import json
 
+from app.runtime._coerce import as_int as _as_int
 from app.runtime.prompt_builder import RequestSpec
 from app.runtime.runners.base import AgentResponse, TokenUsage, ToolCall
 
 __all__ = ["OpenAIChatEncoder"]
-
-
-def _as_int(value: object, default: int) -> int:
-    """Coerce a usage value to int, falling back to ``default``."""
-    if isinstance(value, bool | None):
-        return default
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    return default
 
 
 def _parse_arguments(args: object) -> dict[str, object]:

@@ -17,6 +17,8 @@ from collections.abc import Sequence
 
 import httpx
 
+from app.runtime._coerce import as_float as _as_float
+from app.runtime._coerce import as_int as _as_int
 from app.runtime.prompt_builder import RequestSpec
 from app.runtime.providers.openai_chat import OpenAIChatEncoder
 
@@ -36,26 +38,6 @@ def _is_transient_status(status_code: int) -> bool:
     if status_code == 429:  # rate limit — retry with backoff
         return True
     return status_code >= 500
-
-
-def _as_float(value: object, default: float) -> float:
-    """Coerce a policy value to float, falling back to ``default``."""
-    if isinstance(value, bool | None):
-        return default
-    if isinstance(value, int | float):
-        return float(value)
-    return default
-
-
-def _as_int(value: object, default: int) -> int:
-    """Coerce a policy value to int, falling back to ``default``."""
-    if isinstance(value, bool | None):
-        return default
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    return default
 
 
 def _resolve_env(name: str) -> str:

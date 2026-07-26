@@ -12,9 +12,8 @@ from app.agents.registry import (
     AgentRegistry,
     _load_agent_yaml,
     build_default_registry,
-    load_workflow,
 )
-from app.agents.workflow import WorkflowTree
+from app.agents.workflow import WorkflowTree, load_default_workflow
 
 # ── AgentRegistry basic ops ────────────────────────────────────────────
 
@@ -275,28 +274,28 @@ task: 测试任务
 
 
 class TestDefaultWorkflow:
-    """load_workflow parses default_workflow.yaml into a valid WorkflowTree."""
+    """load_default_workflow parses default_workflow.yaml into a valid WorkflowTree."""
 
     def test_default_workflow_loads_to_valid_tree(self) -> None:
-        tree = load_workflow()
+        tree = load_default_workflow()
         assert isinstance(tree, WorkflowTree)
         assert len(tree.all_nodes) == 5
 
     def test_default_workflow_has_all_agents(self) -> None:
-        tree = load_workflow()
+        tree = load_default_workflow()
         agent_names = {n.agent_name for n in tree.all_nodes.values()}
         assert agent_names == {"recaller", "scout", "writer", "critic", "maintainer"}
 
     def test_default_workflow_root_is_not_director(self) -> None:
         """Director is a system agent NOT in the workflow tree; the root is a workflow agent."""
-        tree = load_workflow()
+        tree = load_default_workflow()
         assert tree.root.agent_name != "director"
         assert tree.root.agent_name in ("recaller", "scout")
         assert tree.root.depth == 0
 
     def test_default_workflow_writer_has_two_predecessors(self) -> None:
         """writer receives from both recaller and scout → has dependency_ids."""
-        tree = load_workflow()
+        tree = load_default_workflow()
         writer = next(n for n in tree.all_nodes.values() if n.agent_name == "writer")
         assert writer.parent_id in {"recaller", "scout"}
         assert len(writer.dependency_ids) == 1
@@ -318,7 +317,7 @@ class TestBuildDefaultRegistry:
     def test_registry_and_workflow_together(self) -> None:
         """Every agent_name in the default workflow exists in the registry."""
         registry = build_default_registry()
-        tree = load_workflow()
+        tree = load_default_workflow()
         for node in tree.all_nodes.values():
             if node.agent_name == "director":
                 continue

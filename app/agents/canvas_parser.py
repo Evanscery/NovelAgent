@@ -15,11 +15,11 @@ from app.agents.tree_model import TreeNode, WorkflowTree
 from app.canvas.canvas_model import CanvasGraph, CanvasNode, CanvasWire
 
 
-def _build_successors(canvas: CanvasGraph, include_feedback: bool = False) -> dict[str, list[str]]:
-    """Build a successors adjacency map from the canvas wires."""
+def _build_successors(canvas: CanvasGraph) -> dict[str, list[str]]:
+    """Build a forward-wire successors adjacency map (feedback wires excluded)."""
     succ: dict[str, list[str]] = {n.id: [] for n in canvas.nodes}
     for wire in canvas.wires:
-        if not include_feedback and wire.repeat_count > 1:
+        if wire.repeat_count > 1:
             continue
         succ[wire.from_node].append(wire.to_node)
     return succ
@@ -75,7 +75,6 @@ def parse_canvas_to_tree(canvas: CanvasGraph) -> WorkflowTree:
         ValueError: on canvas validation failure or unrollable feedback.
     """
     canvas.validate()
-    canvas._topological_order()
 
     expanded_nodes: dict[str, CanvasNode] = {n.id: n for n in canvas.nodes}
     expanded_edges: list[tuple[str, str]] = []
@@ -87,7 +86,7 @@ def parse_canvas_to_tree(canvas: CanvasGraph) -> WorkflowTree:
         else:
             expanded_edges.append((wire.from_node, wire.to_node))
 
-    forward_succ = _build_successors(canvas, include_feedback=False)
+    forward_succ = _build_successors(canvas)
 
     for fb in feedback_wires:
         target = fb.to_node

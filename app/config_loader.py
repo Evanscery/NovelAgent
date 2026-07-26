@@ -225,23 +225,6 @@ class ConfigLoader:
         return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-# ── Module-level helpers ─────────────────────────────────────────────────
-
-
-def load_global(root: Path | str, run_override: dict[str, Any] | None = None) -> GlobalConfig:
-    """Convenience wrapper around :meth:`ConfigLoader.load_global`."""
-    return ConfigLoader(root).load_global(run_override=run_override)
-
-
-def load_project(
-    root: Path | str,
-    project_id: str,
-    run_override: dict[str, Any] | None = None,
-) -> ProjectConfig:
-    """Convenience wrapper around :meth:`ConfigLoader.load_project`."""
-    return ConfigLoader(root).load_project(project_id=project_id, run_override=run_override)
-
-
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge *override* into a copy of *base*.
 
@@ -267,6 +250,4 @@ __all__ = [
     "RuntimeConfig",
     "ServerConfig",
     "TierConfig",
-    "load_global",
-    "load_project",
 ]

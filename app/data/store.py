@@ -11,12 +11,12 @@ import fnmatch
 import re
 from pathlib import Path
 
-from .manifest import ResourceManifest, read_manifest, write_manifest
-from .properties import parse_properties_md, serialize_properties_md
+from .manifest import ResourceManifest, write_manifest
+from .properties import serialize_properties_md
 from .resource import Resource
 from .resource_types import get_resource_type
 
-_SKIP_FILES: frozenset[str] = frozenset({"properties.md", "manifest.json", ".index"})
+_SKIP_FILES: frozenset[str] = frozenset({"properties.md", "manifest.json"})
 
 
 class ResourceStore:
@@ -77,8 +77,8 @@ class ResourceStore:
         """Read content from a resource.
 
         If *filename* is ``None``, returns **all** content files concatenated
-        (excluding metadata files ``properties.md``, ``manifest.json``,
-        ``.index``).  Files are separated by a ``--- <name> ---`` marker.
+        (excluding metadata files ``properties.md`` / ``manifest.json``).
+        Files are separated by a ``--- <name> ---`` marker.
 
         If *filename* is given, reads that specific file relative to the
         resource directory.
@@ -106,8 +106,7 @@ class ResourceStore:
     def list_files(self, resource: Resource) -> list[str]:
         """Return all content file names in the resource directory, sorted.
 
-        Excludes metadata files (``properties.md``, ``manifest.json``,
-        ``.index``).
+        Excludes metadata files (``properties.md`` / ``manifest.json``).
         """
         res_dir = resource.path
         names: list[str] = []
@@ -193,49 +192,3 @@ class ResourceStore:
         clamped_start = max(0, start - 1)
         clamped_end = min(len(lines), end)
         return "\n".join(lines[clamped_start:clamped_end])
-
-    def list_resources(self) -> list[Resource]:
-        """List all resource instances in the project.
-
-        Scans each subdirectory of ``resources/`` for a ``manifest.json``,
-        reads it and ``properties.md``, and returns a ``Resource`` instance
-        for each one.
-        """
-        result: list[Resource] = []
-        if not self._resources_dir.exists():
-            return result
-
-        for child in sorted(self._resources_dir.iterdir()):
-            if not child.is_dir():
-                continue
-            type_name = child.name
-
-            manifest_path = child / "manifest.json"
-            props_path = child / "properties.md"
-            if not manifest_path.exists():
-                continue
-
-            try:
-                type_cls = get_resource_type(type_name)
-            except KeyError:
-                continue
-
-            manifest = read_manifest(manifest_path)
-
-            if props_path.exists():
-                props = parse_properties_md(
-                    props_path.read_text(encoding="utf-8")
-                )
-            else:
-                props = type_cls.default_properties()
-
-            result.append(
-                type_cls(
-                    id=type_name,
-                    type=type_name,
-                    path=child,
-                    properties=props,
-                    manifest=manifest,
-                )
-            )
-        return result

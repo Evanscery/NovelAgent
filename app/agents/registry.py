@@ -22,10 +22,8 @@ from pathlib import Path
 import yaml
 
 from app.agents.agent import Agent
-from app.agents.workflow import WorkflowTree
 
 _BUILTIN_DIR = Path(__file__).parent / "builtin"
-_DEFAULT_WORKFLOW = Path(__file__).parent / "default_workflow.yaml"
 
 #: Sentinel for ambiguous name lookups in the name index.
 #: When multiple agents share a display name, the name maps to this
@@ -137,16 +135,6 @@ class AgentRegistry:
             agent = _load_agent_yaml(yaml_path)
             self.register(agent)
 
-    def load_workflow(self, path: str | Path = _DEFAULT_WORKFLOW) -> WorkflowTree:
-        """Load a workflow canvas/tree from *path* and return a :class:`WorkflowTree`.
-
-        Delegates to :func:`app.agents.workflow.load_workflow` (supports
-        both canvas-format and tree-format files).
-        """
-        from app.agents.workflow import load_workflow as _load
-
-        return _load(path)
-
 
 def _load_agent_yaml(path: Path) -> Agent:
     """Parse a single agent yaml file into an :class:`Agent`.
@@ -172,17 +160,6 @@ def _load_agent_yaml(path: Path) -> Agent:
         msg = f"Agent yaml {path!s}: expected a mapping at top level, got {type(raw).__name__}"
         raise ValueError(msg)
     return Agent.from_dict(raw, source=f"agent yaml {path!s}")
-
-
-def load_workflow(path: Path = _DEFAULT_WORKFLOW) -> WorkflowTree:
-    """Load the default canvas workflow from *path* and parse it to a tree.
-
-    Thin wrapper around :func:`app.agents.workflow.load_workflow` for
-    backwards compatibility.
-    """
-    from app.agents.workflow import load_workflow as _load
-
-    return _load(path)
 
 
 def build_default_registry() -> AgentRegistry:
@@ -240,5 +217,4 @@ __all__ = [
     "AgentRegistry",
     "build_default_registry",
     "build_project_registry",
-    "load_workflow",
 ]

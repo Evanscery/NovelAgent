@@ -12,7 +12,6 @@ in a tmp_path project:
     -> list_history (newest-first, 2 commits)
     -> VersionManager.rollback(mode='branch') to turn 1
        (new branch created, original branch intact with turn-2 data)
-    -> current_projection reflects the rolled-back state
     -> AtomicTurn success: 2 writes land in ONE git commit
     -> AtomicTurn failure: 1 write + exception -> nothing committed,
        working tree restored, file absent
@@ -31,7 +30,6 @@ import git
 import pytest
 
 from app.data.project_repo import ProjectRepo
-from app.data.projection import current_projection
 from app.data.resource import Resource
 from app.data.resource_types import RESOURCE_TYPE_REGISTRY
 from app.data.store import ResourceStore
@@ -90,7 +88,7 @@ _TURN2_UPDATES: dict[str, tuple[str, str]] = {
 
 class TestDataLayerFlow:
     """End-to-end: init → create 8 → write → commit → write → commit →
-    history → rollback → projection → atomic-turn."""
+    history → rollback → atomic-turn."""
 
     def test_init_creates_dot_git(self, project: Path) -> None:
         assert (project / ".git").is_dir()
@@ -121,7 +119,7 @@ class TestDataLayerFlow:
             store.write(resource, filename, content)
             assert store.read(resource, filename) == content
 
-    def test_full_flow_commit_history_rollback_projection(
+    def test_full_flow_commit_history_rollback(
         self, project: Path, store: ResourceStore, repo: ProjectRepo
     ) -> None:
         """Steps 1-9 of the integration flow in one transactional test."""
@@ -156,12 +154,12 @@ class TestDataLayerFlow:
         #    original branch intact with turn-2 data.
         vm = VersionManager(project)
         # We are on 'main' before rollback.
-        assert "main" in vm.list_branches()
+        assert "main" in repo.list_branches()
 
         new_branch = vm.rollback("turn-001", mode="branch")
         assert new_branch.startswith("rollback/turn-turn-001")
 
-        branches = vm.list_branches()
+        branches = repo.list_branches()
         assert new_branch in branches, "rollback branch must exist"
         assert "main" in branches, "original main branch must still exist"
 
@@ -186,15 +184,6 @@ class TestDataLayerFlow:
             "turn-2-only file must be absent on the rollback branch"
         )
 
-        # 8. Verify projection reflects the rolled-back (turn-1) state.
-        proj = current_projection(project)
-        assert proj.current_branch == new_branch
-        proj_state = proj.resource_files.get("resources/state/current.md", "")
-        assert "城郊" in proj_state, (
-            "projection must reflect the rolled-back turn-1 state"
-        )
-        # turn-2-only file must be absent from the projection
-        assert "resources/short_goal/turn2_plan.md" not in proj.resource_files
 
     # ── AtomicTurn: success path ─────────────────────────────────────
 

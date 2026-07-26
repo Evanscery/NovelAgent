@@ -20,6 +20,8 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+from app.runtime._coerce import as_float as _as_float
+from app.runtime._coerce import as_int as _as_int
 from app.runtime.prompt_builder import RequestSpec
 from app.runtime.runners.base import AgentResponse, AgentRunner, RunnerAgent
 
@@ -46,26 +48,6 @@ class RuntimeResult:
 
     successes: list[AgentResponse] = field(default_factory=list)
     failures: list[BaseException] = field(default_factory=list)
-
-
-def _as_float(value: object, default: float) -> float:
-    """Coerce a policy value to float, falling back to ``default``."""
-    if isinstance(value, bool | None):
-        return default
-    if isinstance(value, int | float):
-        return float(value)
-    return default
-
-
-def _as_int(value: object, default: int) -> int:
-    """Coerce a policy value to int, falling back to ``default``."""
-    if isinstance(value, bool | None):
-        return default
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    return default
 
 
 class Runtime:

@@ -27,7 +27,8 @@ from typing import cast
 
 import pytest
 
-from app.agents.registry import build_default_registry, load_workflow
+from app.agents.registry import build_default_registry
+from app.agents.workflow import load_workflow
 from app.data.project_repo import ProjectRepo
 from app.data.store import ResourceStore
 from app.runtime.budget import BudgetTracker

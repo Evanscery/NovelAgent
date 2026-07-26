@@ -251,33 +251,3 @@ class TestReadLines:
         assert result == "a\nb\nc"
 
 
-# ── list_resources ────────────────────────────────────────────────────
-
-
-class TestListResources:
-    """list_resources returns all created resources."""
-
-    def test_empty_project(self, tmp_path: Path) -> None:
-        store = _make_store(tmp_path)
-        assert store.list_resources() == []
-
-    def test_returns_created_resources(self, tmp_path: Path) -> None:
-        store = _make_store(tmp_path)
-        store.create_resource("outline", "o1")
-        store.create_resource("state", "s1")
-        store.create_resource("notes", "n1")
-
-        resources = store.list_resources()
-        types = {r.type for r in resources}
-        assert types == {"outline", "state", "notes"}
-
-    def test_skips_non_resource_dirs(self, tmp_path: Path) -> None:
-        """Directories without manifest.json are skipped."""
-        store = _make_store(tmp_path)
-        store.create_resource("outline", "o1")
-        # Create a non-resource directory
-        (tmp_path / "resources" / "junk_dir").mkdir(parents=True, exist_ok=True)
-
-        resources = store.list_resources()
-        assert len(resources) == 1
-        assert resources[0].type == "outline"

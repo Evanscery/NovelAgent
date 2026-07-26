@@ -102,9 +102,6 @@ def scaffold_project(root: Path | str, display_name: str, mode: str = "novel") -
         )
         write_manifest(res_dir / "manifest.json", manifest)
 
-        # Empty symbol-search index, matching ResourceStore.create_resource.
-        (res_dir / ".index").write_text("", encoding="utf-8")
-
     # 5. front/ and novels/ directories.
     (project_path / "front").mkdir(parents=True, exist_ok=True)
     (project_path / "novels").mkdir(parents=True, exist_ok=True)
