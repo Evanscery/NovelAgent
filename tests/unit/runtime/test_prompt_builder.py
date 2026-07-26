@@ -10,8 +10,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from app.agents.agent import Agent
+from app.agents.permission import parse_permission
 from app.agents.tools import BUILTIN_TOOL_SCHEMAS, ToolSchema
-from app.runtime.permission import parse_permission
 from app.runtime.prompt_builder import Message, PromptBuilder, RequestSpec
 
 

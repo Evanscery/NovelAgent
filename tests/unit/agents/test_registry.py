@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from app.agents.agent import Agent, get_default_tools, set_default_tools
+from app.agents.permission import Permission
 from app.agents.registry import (
     AgentRegistry,
     _load_agent_yaml,
@@ -14,7 +15,6 @@ from app.agents.registry import (
     load_workflow,
 )
 from app.agents.workflow import WorkflowTree
-from app.runtime.permission import Permission
 
 # ── AgentRegistry basic ops ────────────────────────────────────────────
 

@@ -1,51 +1,37 @@
-"""Parse agent.permission hash<string,vector>, inject into tool scope, enforce.
+"""Permission enforcement — apply an agent's Permission to live tool calls.
 
-Per ``docs/refactor_guide.md:77-80``:
+The permission *definition* (:class:`~app.agents.permission.Permission` and
+its parser) is an agent attribute and lives in the agent layer. This module
+is the runtime execution side:
 
-* ``permission`` is a ``hash<string, vector>`` — a dict mapping an action
-  string (``"read"`` / ``"write"``) to a vector of resource-type names
-  (the directory/file names from ``RESOURCE_TYPE_REGISTRY``).
-* The parser maintains a mapping (``'data/memory'``) to decouple the
-  resource_type name from the actual on-disk path. In this codebase that
-  mapping is realised by :class:`~app.data.store.ResourceStore`, which
-  resolves a resource_type string to the concrete ``Resource`` (and its
-  ``path``) via ``RESOURCE_TYPE_REGISTRY``. The permission layer therefore
-  only ever reasons about resource_type strings — never raw paths.
+* :class:`ScopedTools` wraps a :class:`~app.data.store.ResourceStore` with a
+  ``Permission`` and gates every tool call on it.
 * 越权访问 reject: when an agent calls a tool for a resource_type its
   permission does not cover, :class:`PermissionDenied` is raised (not a
   silent return).
 
-This module is a pure data structure + enforcement layer. It owns no
-side effects of its own — the actual file reads/writes happen in
-:class:`~app.data.store.ResourceStore`, which :class:`ScopedTools` delegates
-to *after* the permission check passes.
+This module owns no side effects of its own — the actual file reads/writes
+happen in :class:`~app.data.store.ResourceStore`, which :class:`ScopedTools`
+delegates to *after* the permission check passes.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from app.data.resource_types import RESOURCE_TYPE_REGISTRY
+from app.agents.permission import Permission
 from app.data.store import ResourceStore
 
 if TYPE_CHECKING:
     from app.data.resource import Resource
 
-# Actions recognised by the permission hash. Per refactor_guide:77-80 the
-# only standardised tool verbs are ``read`` / ``write`` (and the file I/O
-# tools ``list_files`` / ``glob_files`` / ``grep_lines`` / ``read_lines``
-# are all read ops), so the permission hash itself only needs ``read`` and
-# ``write`` keys.
-_VALID_ACTIONS: frozenset[str] = frozenset({"read", "write"})
-
 
 class PermissionDenied(Exception):
     """Raised when an agent attempts an action its permission does not cover.
 
-    Per refactor_guide:80 — 越权访问 reject.  This is a hard exception, never
-    a silent return: callers must surface the rejection to the runtime /
-    director so the offending tool call is not silently dropped.
+    越权访问 reject: this is a hard exception, never a silent return —
+    callers must surface the rejection to the runtime / director so the
+    offending tool call is not silently dropped.
     """
 
     def __init__(self, action: str, resource_type: str, allowed: tuple[str, ...]) -> None:
@@ -56,85 +42,6 @@ class PermissionDenied(Exception):
             f"Permission denied: action={action!r} resource_type={resource_type!r} "
             f"not in allowed={list(allowed)}"
         )
-
-
-@dataclass(frozen=True)
-class Permission:
-    """An agent's permission scope — ``hash<string, vector>``.
-
-    Attributes:
-        rules: Mapping from action (``"read"`` / ``"write"``) to the tuple of
-            resource_type names that action is allowed on. Tuples (not lists)
-            because the dataclass is frozen and the rules must be hashable /
-            immutable.
-    """
-
-    rules: dict[str, tuple[str, ...]]
-
-    def allowed(self, action: str, resource_type: str) -> bool:
-        """True iff *resource_type* is permitted under *action*."""
-        return resource_type in self.rules.get(action, ())
-
-
-def parse_permission(raw: dict[str, object]) -> Permission:
-    """Validate and parse a raw permission dict into a :class:`Permission`.
-
-    The raw dict shape is ``{action: [resource_type, ...]}``. Only the
-    ``read`` and ``write`` actions are recognised; other keys are rejected
-    to surface misconfiguration early rather than silently dropping scope.
-
-    Args:
-        raw: The raw permission dict (e.g. ``{'read': ['state', 'memory'],
-            'write': ['short_goal']}``).
-
-    Returns:
-        A frozen :class:`Permission` with tuple-valued rules.
-
-    Raises:
-        TypeError:  If *raw* is not a dict, or a value is not a list, or a
-                    list element is not a string.
-        ValueError: If an action key is not in ``{"read", "write"}``, or a
-                    resource_type is not in ``RESOURCE_TYPE_REGISTRY``.
-    """
-    if not isinstance(raw, dict):
-        msg = f"parse_permission: expected dict, got {type(raw).__name__}"
-        raise TypeError(msg)
-
-    rules: dict[str, tuple[str, ...]] = {}
-    for action, vector in raw.items():
-        if action not in _VALID_ACTIONS:
-            msg = (
-                f"parse_permission: unknown action {action!r}. "
-                f"Valid actions: {sorted(_VALID_ACTIONS)}"
-            )
-            raise ValueError(msg)
-        if not isinstance(vector, list):
-            msg = (
-                f"parse_permission: value for {action!r} must be a list, "
-                f"got {type(vector).__name__}"
-            )
-            raise TypeError(msg)
-
-        entries: list[str] = []
-        for entry in vector:
-            if not isinstance(entry, str):
-                msg = (
-                    f"parse_permission: entry in {action!r} must be a str, "
-                    f"got {type(entry).__name__} ({entry!r})"
-                )
-                raise TypeError(msg)
-            if entry not in RESOURCE_TYPE_REGISTRY:
-                valid = ", ".join(sorted(RESOURCE_TYPE_REGISTRY))
-                msg = (
-                    f"parse_permission: unknown resource_type {entry!r} in {action!r}. "
-                    f"Valid types: {valid}"
-                )
-                raise ValueError(msg)
-            entries.append(entry)
-
-        rules[action] = tuple(entries)
-
-    return Permission(rules=rules)
 
 
 def enforce(permission: Permission, action: str, resource_type: str) -> bool:
@@ -156,14 +63,9 @@ class ScopedTools:
 
     1. Checks the agent's :class:`Permission` for the requested action and
        resource_type, raising :class:`PermissionDenied` on overreach.
-    2. Resolves the resource_type string to a concrete ``Resource`` (the
-       ``'data/memory'`` decoupling mapping from guide:79 — the store owns
-       the path resolution).
+    2. Resolves the resource_type string to a concrete ``Resource`` — the
+       store owns the type→path resolution.
     3. Delegates the actual file operation to the wrapped ``ResourceStore``.
-
-    The interface intentionally mirrors what the executor layer
-    (:mod:`app.runtime.tool_executor`) will expose, so it can wrap or be
-    wrapped by that layer without churn.
     """
 
     def __init__(self, store: ResourceStore, permission: Permission) -> None:
@@ -312,11 +214,10 @@ class ScopedTools:
     def _resolve(self, resource_type: str) -> Resource:
         """Resolve a resource_type string to its concrete ``Resource``.
 
-        This is the ``'data/memory'`` decoupling mapping (guide:79): the
-        permission layer only knows resource_type strings; the store owns
-        the type→path resolution. If the resource does not yet exist in the
-        project, it is scaffolded (mirroring how an agent would first
-        touch a resource it has permission on).
+        The permission layer only knows resource_type strings; the store
+        owns the type→path resolution. If the resource does not yet exist
+        in the project, it is scaffolded (mirroring how an agent would
+        first touch a resource it has permission on).
         """
         return self._store.create_resource(resource_type, resource_type)
 
@@ -324,9 +225,8 @@ class ScopedTools:
 def inject_into_tools(store: ResourceStore, permission: Permission) -> ScopedTools:
     """Create a :class:`ScopedTools` wrapping *store* with *permission*.
 
-    This is the runtime injection point described in refactor_guide:137
-    ("解析并注入，比如将agent的permission实际映射到工具上去"): the runtime
-    parses an agent's ``permission`` attribute via :func:`parse_permission`,
-    then calls this to obtain a scope-gated tool set the agent can use.
+    This is the runtime injection point — 将 agent 的 permission 实际映射到
+    工具上: the runtime takes an agent's parsed ``permission`` attribute and
+    calls this to obtain a scope-gated tool set the agent can use.
     """
     return ScopedTools(store=store, permission=permission)

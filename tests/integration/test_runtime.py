@@ -51,13 +51,13 @@ from unittest.mock import patch
 
 import pytest
 
+from app.agents.permission import parse_permission
 from app.data.project_repo import ProjectRepo
 from app.data.store import ResourceStore
 from app.runtime.budget import BudgetTracker, FinalizeSignal
 from app.runtime.permission import (
     PermissionDenied,
     inject_into_tools,
-    parse_permission,
 )
 from app.runtime.prompt_builder import Message, RequestSpec
 from app.runtime.runners.base import (

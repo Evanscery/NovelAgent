@@ -40,7 +40,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.runtime.permission import Permission, parse_permission
+from app.agents.permission import Permission, parse_permission
 
 #: Rigorous agent-id format. Per refactor_guide:63 ``id`` is the control /
 #: storage identifier and ``name`` is the display attribute. A shareable

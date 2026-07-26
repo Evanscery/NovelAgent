@@ -33,6 +33,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi import Path as FastPath
 
 from app.agents.agent import Agent
+from app.agents.permission import Permission, parse_permission
 from app.agents.registry import AgentRegistry, build_project_registry
 from app.api.schemas import (
     AgentConfigResponse,
@@ -43,7 +44,6 @@ from app.api.schemas import (
 )
 from app.config_loader import ConfigLoader
 from app.project_paths import ProjectPathError, resolve_project_path
-from app.runtime.permission import Permission, parse_permission
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 

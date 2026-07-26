@@ -22,10 +22,10 @@ from typing import cast
 import pytest
 
 from app.agents.agent import Agent
+from app.agents.permission import Permission, parse_permission
 from app.agents.registry import AgentRegistry
 from app.agents.workflow import TreeNode, WorkflowTree
 from app.runtime.budget import BudgetTracker
-from app.runtime.permission import Permission, parse_permission
 from app.runtime.round_executor import RoundExecutor
 from app.runtime.runners.base import (
     AgentResponse,

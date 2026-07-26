@@ -7,7 +7,7 @@ from dataclasses import FrozenInstanceError, fields, replace
 import pytest
 
 from app.agents.agent import Agent, get_default_tools, set_default_tools
-from app.runtime.permission import Permission, parse_permission
+from app.agents.permission import Permission, parse_permission
 from app.runtime.runners.base import RunnerAgent
 
 
@@ -162,11 +162,6 @@ class TestAgentIsFrozen:
         agent = _make_agent()
         with pytest.raises(FrozenInstanceError):
             agent.model = "cheap"  # type: ignore[misc]
-
-    def test_cannot_mutate_tools(self) -> None:
-        agent = _make_agent()
-        with pytest.raises(FrozenInstanceError):
-            agent.tools = ["new_tool"]  # type: ignore[misc]
 
     def test_cannot_mutate_tools(self) -> None:
         agent = _make_agent()

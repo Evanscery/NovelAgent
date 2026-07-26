@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from app.agents.agent import Agent
 from app.agents.parser import render_agent_system_prompt
-from app.runtime.permission import Permission, parse_permission
+from app.agents.permission import Permission, parse_permission
 
 
 def _make_permission(

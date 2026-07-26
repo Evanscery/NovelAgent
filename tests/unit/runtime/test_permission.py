@@ -7,15 +7,14 @@ from pathlib import Path
 
 import pytest
 
+from app.agents.permission import Permission, parse_permission
 from app.data.resource_types import RESOURCE_TYPE_REGISTRY
 from app.data.store import ResourceStore
 from app.runtime.permission import (
-    Permission,
     PermissionDenied,
     ScopedTools,
     enforce,
     inject_into_tools,
-    parse_permission,
 )
 
 # ── parse_permission ──────────────────────────────────────────────────────────
