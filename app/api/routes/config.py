@@ -142,7 +142,6 @@ def _agent_to_response(agent: Agent) -> AgentConfigResponse:
             action: list(vector) for action, vector in agent.permission.rules.items()
         },
         model=agent.model,
-        skills=list(agent.skills),
         tools=list(agent.tools),
         head=agent.head,
         tail=agent.tail,
@@ -289,7 +288,6 @@ def put_project_agent(
         output=req.output,
         permission=permission,
         model=req.model,
-        skills=list(req.skills),
         tools=list(req.tools),
         head=req.head,
         tail=req.tail,

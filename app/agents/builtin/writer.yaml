@@ -1,4 +1,5 @@
 name: writer
+id: writer
 task: 文本生成。根据细纲、状态、世界书、角色记忆，生成本轮正文。
 input: 细纲、当前状态、世界书、角色记忆、创作笔记
 output: 本轮正文（markdown 文本）
@@ -6,7 +7,6 @@ permission:
   read: [outline, short_goal, state, worldbook, character_memory, notes]
   write: [notes]
 model: premium
-skills: []
 tools: [read, write]
 head: null
 tail: null

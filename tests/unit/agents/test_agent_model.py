@@ -6,9 +6,9 @@ from dataclasses import FrozenInstanceError, fields, replace
 
 import pytest
 
-from app.agents.agent import Agent
-from app.runtime.runners.base import RunnerAgent
+from app.agents.agent import Agent, get_default_tools, set_default_tools
 from app.runtime.permission import Permission, parse_permission
+from app.runtime.runners.base import RunnerAgent
 
 
 def _make_permission(
@@ -30,8 +30,7 @@ def _make_agent(**overrides: object) -> Agent:
         "output": "JSON 格式的下一步行动指令",
         "permission": _make_permission(),
         "model": "premium",
-        "skills": ["scheduling"],
-        "tools": ["read", "search", "write"],
+        "tools": ["read", "write", "list_files", "glob_files", "grep_lines", "read_lines"],
         "head": None,
         "tail": None,
         "allow_recursive": True,
@@ -70,8 +69,9 @@ class TestAgentHasAllTwelveAttributes:
     def test_has_model(self) -> None:
         assert "model" in _AGENT_FIELD_NAMES
 
-    def test_has_skills(self) -> None:
-        assert "skills" in _AGENT_FIELD_NAMES
+    def test_has_no_skills_field(self) -> None:
+        """The skill abstraction was removed — a skill IS an agent."""
+        assert "skills" not in _AGENT_FIELD_NAMES
 
     def test_has_tools(self) -> None:
         assert "tools" in _AGENT_FIELD_NAMES
@@ -85,10 +85,10 @@ class TestAgentHasAllTwelveAttributes:
     def test_has_allow_recursive(self) -> None:
         assert "allow_recursive" in _AGENT_FIELD_NAMES
 
-    def test_field_count_is_twelve(self) -> None:
-        assert len(_AGENT_FIELD_NAMES) == 12
+    def test_field_count_is_eleven(self) -> None:
+        assert len(_AGENT_FIELD_NAMES) == 11
 
-    def test_all_twelve_fields_populated(self) -> None:
+    def test_all_eleven_fields_populated(self) -> None:
         agent = _make_agent()
         assert agent.id == "director-001"
         assert agent.name == "director"
@@ -97,8 +97,7 @@ class TestAgentHasAllTwelveAttributes:
         assert agent.output == "JSON 格式的下一步行动指令"
         assert isinstance(agent.permission, Permission)
         assert agent.model == "premium"
-        assert agent.skills == ["scheduling"]
-        assert agent.tools == ["read", "search", "write"]
+        assert agent.tools == ["read", "write", "list_files", "glob_files", "grep_lines", "read_lines"]
         assert agent.head is None
         assert agent.tail is None
         assert agent.allow_recursive is True
@@ -164,10 +163,10 @@ class TestAgentIsFrozen:
         with pytest.raises(FrozenInstanceError):
             agent.model = "cheap"  # type: ignore[misc]
 
-    def test_cannot_mutate_skills(self) -> None:
+    def test_cannot_mutate_tools(self) -> None:
         agent = _make_agent()
         with pytest.raises(FrozenInstanceError):
-            agent.skills = ["new_skill"]  # type: ignore[misc]
+            agent.tools = ["new_tool"]  # type: ignore[misc]
 
     def test_cannot_mutate_tools(self) -> None:
         agent = _make_agent()
@@ -219,12 +218,6 @@ class TestAgentReplace:
         new_agent = replace(agent, model="cheap")
         assert new_agent.model == "cheap"
         assert agent.model == "premium"
-
-    def test_replace_can_change_skills(self) -> None:
-        agent = _make_agent(skills=["scheduling"])
-        new_agent = replace(agent, skills=["scheduling", "dice_roll"])
-        assert new_agent.skills == ["scheduling", "dice_roll"]
-        assert agent.skills == ["scheduling"]
 
     def test_replace_can_change_permission(self) -> None:
         agent = _make_agent()
@@ -278,9 +271,18 @@ class TestAgentSatisfiesRunnerAgentProtocol:
 
 
 class TestAgentDefaultTools:
-    """Default tools = ['read', 'search', 'write'] — the unified tool set."""
+    """Default tools are config-driven (config/agents.yaml via set_default_tools)."""
 
-    def test_default_tools_is_read_search_write(self) -> None:
+    @pytest.fixture(autouse=True)
+    def _restore_default_tools_cache(self) -> object:
+        """Snapshot & restore the module-level default-tools cache around each test."""
+        original = get_default_tools()
+        yield
+        set_default_tools(original)
+
+    def test_default_tools_empty_when_cache_not_populated(self) -> None:
+        """Without set_default_tools being called the cache is empty."""
+        set_default_tools([])
         agent = Agent(
             id="a",
             name="n",
@@ -289,30 +291,41 @@ class TestAgentDefaultTools:
             output="o",
             permission=_make_permission(),
         )
-        assert agent.tools == ["read", "search", "write"]
+        assert agent.tools == []
+
+    def test_default_tools_inherit_cached_value(self) -> None:
+        """An Agent with no explicit `tools=` inherits the cached default."""
+        set_default_tools(["read", "write", "list_files", "glob_files", "grep_lines", "read_lines"])
+        agent = Agent(
+            id="a",
+            name="n",
+            task="t",
+            input="i",
+            output="o",
+            permission=_make_permission(),
+        )
+        assert agent.tools == ["read", "write", "list_files", "glob_files", "grep_lines", "read_lines"]
+
+    def test_default_tools_cache_change_reflected_in_subsequent_construction(self) -> None:
+        """Editing the cache (e.g. config reload) is reflected by the next Agent."""
+        set_default_tools(["alpha"])
+        a1 = Agent(id="a1", name="n", task="t", input="i", output="o", permission=_make_permission())
+        assert a1.tools == ["alpha"]
+        # Now reload — same effect as restarting the server after editing yaml.
+        set_default_tools(["beta", "gamma"])
+        a2 = Agent(id="a2", name="n", task="t", input="i", output="o", permission=_make_permission())
+        assert a2.tools == ["beta", "gamma"]
 
     def test_default_tools_is_a_new_list_each_instance(self) -> None:
         """default_factory must produce a fresh list per instance (no shared mutable default)."""
-        a1 = Agent(
-            id="a1",
-            name="n",
-            task="t",
-            input="i",
-            output="o",
-            permission=_make_permission(),
-        )
-        a2 = Agent(
-            id="a2",
-            name="n",
-            task="t",
-            input="i",
-            output="o",
-            permission=_make_permission(),
-        )
+        set_default_tools(["read"])
+        a1 = Agent(id="a1", name="n", task="t", input="i", output="o", permission=_make_permission())
+        a2 = Agent(id="a2", name="n", task="t", input="i", output="o", permission=_make_permission())
         assert a1.tools == a2.tools
         assert a1.tools is not a2.tools
 
     def test_custom_tools_override_default(self) -> None:
+        set_default_tools(["read", "write"])
         agent = _make_agent(tools=["read"])
         assert agent.tools == ["read"]
 
@@ -320,10 +333,11 @@ class TestAgentDefaultTools:
 # ── Default skills ─────────────────────────────────────────────────────
 
 
-class TestAgentDefaultSkills:
-    """Default skills is an empty list (inherits global, dynamically mountable)."""
+class TestAgentNoSkillsAttribute:
+    """The skill abstraction was removed — Agent carries no skills field,
+    and a leftover ``skills:`` key in yaml dicts is ignored, not an error."""
 
-    def test_default_skills_is_empty_list(self) -> None:
+    def test_agent_has_no_skills_attribute(self) -> None:
         agent = Agent(
             id="a",
             name="n",
@@ -332,26 +346,23 @@ class TestAgentDefaultSkills:
             output="o",
             permission=_make_permission(),
         )
-        assert agent.skills == []
+        assert not hasattr(agent, "skills")
 
-    def test_default_skills_is_a_new_list_each_instance(self) -> None:
-        a1 = Agent(
-            id="a1",
-            name="n",
-            task="t",
-            input="i",
-            output="o",
-            permission=_make_permission(),
+    def test_from_dict_ignores_leftover_skills_key(self) -> None:
+        agent = Agent.from_dict(
+            {
+                "id": "legacy-agent",
+                "name": "legacy",
+                "task": "t",
+                "input": "i",
+                "output": "o",
+                "permission": {"read": ["state"], "write": []},
+                "skills": ["scheduling", "dice_roll"],
+            }
         )
-        a2 = Agent(
-            id="a2",
-            name="n",
-            task="t",
-            input="i",
-            output="o",
-            permission=_make_permission(),
-        )
-        assert a1.skills is not a2.skills
+        assert agent.id == "legacy-agent"
+        assert not hasattr(agent, "skills")
+        assert "skills" not in agent.to_dict()
 
 
 # ── Default head / tail ────────────────────────────────────────────────

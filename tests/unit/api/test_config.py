@@ -1,10 +1,11 @@
 """Tests for /api/config routes (httpx TestClient against FastAPI).
 
 Covers the todo-23 acceptance criteria for the config page:
-* GET global config returns models/runtime/server tiers.
-* PUT global config writes back to the yaml files.
+* GET global config returns models/runtime/agents/server tiers.
+* PUT global config writes back to the yaml files (including agents tier).
 * GET project config returns the merged per-project config.
-* PUT project config updates display_name / mode / overrides.
+* PUT project config updates display_name / mode / overrides
+  (including agents overrides).
 * GET project agents lists all 6 built-in agents (5 workflow + director).
 * PUT project agent edits one agent's attribute set (writer's model).
 """
@@ -18,7 +19,6 @@ import yaml
 from fastapi.testclient import TestClient
 
 from app.api.server import create_app
-
 
 # ── fixtures ─────────────────────────────────────────────────────────────
 
@@ -57,6 +57,36 @@ def app_root(tmp_path: Path) -> Path:
 def client(app_root: Path) -> TestClient:
     app = create_app(app_root)
     return TestClient(app)
+
+
+@pytest.fixture()
+def agents_root(tmp_path: Path) -> Path:
+    """Like ``app_root`` but also writes ``config/agents.yaml`` with default_tools."""
+    (tmp_path / "config").mkdir()
+    (tmp_path / "workspaces").mkdir()
+    (tmp_path / "config" / "server.yaml").write_text(
+        yaml.safe_dump(
+            {"server": {"host": "127.0.0.1", "port": 8000, "allow_origins": [], "ip_whitelist": []}},
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "config" / "models.yaml").write_text(
+        yaml.safe_dump({"tiers": {}}, allow_unicode=True),
+        encoding="utf-8",
+    )
+    (tmp_path / "config" / "runtime.yaml").write_text(
+        yaml.safe_dump({"runner": {"timeout_seconds": 600}}, allow_unicode=True),
+        encoding="utf-8",
+    )
+    (tmp_path / "config" / "agents.yaml").write_text(
+        yaml.safe_dump(
+            {"default_tools": ["read", "write", "list_files", "glob_files", "grep_lines", "read_lines"]},
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    return tmp_path
 
 
 def _make_project(client: TestClient, display_name: str = "Test") -> str:
@@ -215,7 +245,7 @@ class TestListProjectAgents:
         resp = client.get(f"/api/config/{pid}/agents")
         body = resp.json()
         writer = next(a for a in body if a["name"] == "writer")
-        for attr in ("name", "task", "input", "output", "permission", "model", "skills", "tools",
+        for attr in ("name", "task", "input", "output", "permission", "model", "tools",
                      "head", "tail", "allow_recursive"):
             assert attr in writer, f"Missing attribute {attr!r}"
 
@@ -314,3 +344,40 @@ class TestPutProjectAgent:
             },
         )
         assert resp.status_code == 404
+
+
+# ── /api/config — agents tier (config/agents.yaml) ───────────────────────
+
+
+class TestGlobalAgentsTier:
+    """Global config now also surfaces the agents tier (config/agents.yaml)."""
+
+    def test_get_returns_agents_tier_when_file_present(self, agents_root: Path) -> None:
+        c = TestClient(create_app(agents_root))
+        resp = c.get("/api/config")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["agents"] == {
+            "default_tools": ["read", "write", "list_files", "glob_files", "grep_lines", "read_lines"]
+        }
+
+    def test_get_returns_empty_agents_tier_when_file_missing(self, app_root: Path) -> None:
+        """No agents.yaml on disk → empty agents blob, route still 200."""
+        c = TestClient(create_app(app_root))
+        resp = c.get("/api/config")
+        body = resp.json()
+        assert body["agents"] == {}
+
+    def test_put_agents_writes_file(self, agents_root: Path) -> None:
+        c = TestClient(create_app(agents_root))
+        new_agents = {"default_tools": ["read", "write"]}
+        resp = c.put("/api/config", json={"agents": new_agents})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["agents"]["default_tools"] == ["read", "write"]
+        on_disk = yaml.safe_load((agents_root / "config" / "agents.yaml").read_text(encoding="utf-8"))
+        assert on_disk["default_tools"] == ["read", "write"]
+
+    def test_put_no_models_runtime_agents_server_400(self, client: TestClient) -> None:
+        resp = client.put("/api/config", json={})
+        assert resp.status_code == 400

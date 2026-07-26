@@ -1,13 +1,13 @@
 """
-Agent dataclass: id/name/task/input/output/permission/model/skills/tools/head/tail/allow_recursive.
+Agent dataclass: id/name/task/input/output/permission/model/tools/head/tail/allow_recursive.
 
 Design Philosophy:
-- Configurations are static; prompts are generated dynamically at runtime 
-  via `parse_agent_to_prompt`. Do not hardcode prompts here.
+- Configurations are static; prompts are generated dynamically at runtime
+  via `render_agent_system_prompt`. Do not hardcode prompts here.
 
 Attributes:
--The first 11 attributes (id … tail) are the refactor_guide attribute set
-(guide:62-73). The 12th, ``allow_recursive``, is a **runtime-only** flag
+-The first 10 attributes (id … tail) are the refactor_guide attribute set
+(guide:62-73). The 11th, ``allow_recursive``, is a **runtime-only** flag
 introduced by the AST-like workflow design (todo 18 / plan scope): it is
 NOT injected into the agent's prompt (the parser must never emit it), but
 it IS serializable to yaml so the front-end config page can expose it as a
@@ -93,7 +93,7 @@ def get_default_tools() -> list[str]:
 
 @dataclass(frozen=True)
 class Agent:
-    """Agent attribute model — 12 attributes per refactor_guide:62-73 + todo 18.
+    """Agent attribute model — 11 attributes per refactor_guide:62-73 + todo 18.
 
     Attributes:
         id:              Read-only, created-init, unique. Validated non-empty.
@@ -103,7 +103,6 @@ class Agent:
         output:          Output format description.
         permission:      Context isolation scope (hash<string, vector>).
         model:           Which model config to use; None means use runner default.
-        skills:          Available skills list. Mutable (dynamically mountable).
         tools:           Available tools list. Default: the cached value from
             ``config/agents.yaml`` (see :func:`set_default_tools`). Empty list
             when the cache has not been populated (e.g. unit tests that don't
@@ -123,7 +122,6 @@ class Agent:
     output: str
     permission: Permission
     model: str | None = None
-    skills: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=lambda: list(_default_tools_cache))
     head: str | None = None
     tail: str | None = None
@@ -159,7 +157,6 @@ class Agent:
                 action: list(vector) for action, vector in self.permission.rules.items()
             },
             "model": self.model,
-            "skills": list(self.skills),
             "tools": list(self.tools),
             "head": self.head,
             "tail": self.tail,
@@ -213,10 +210,9 @@ class Agent:
             msg = f"{source}: 'model' must be a str or null"
             raise ValueError(msg)
 
-        skills = raw.get("skills", [])
-        if not isinstance(skills, list):
-            msg = f"{source}: 'skills' must be a list"
-            raise ValueError(msg)
+        # NOTE: a leftover 'skills' key from pre-refactor yaml files is
+        # deliberately ignored — the skill abstraction was removed (a
+        # skill IS an agent), and old files must keep loading.
 
         tools = list(raw["tools"]) if "tools" in raw else get_default_tools()
         if not isinstance(tools, list):
@@ -246,7 +242,6 @@ class Agent:
             output=raw["output"],
             permission=permission,
             model=model,
-            skills=list(skills),
             tools=tools,
             head=head,
             tail=tail,

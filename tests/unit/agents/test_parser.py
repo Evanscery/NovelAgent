@@ -30,7 +30,6 @@ def _make_agent(**overrides: object) -> Agent:
         "output": "JSON 格式的下一步行动指令",
         "permission": _make_permission(),
         "model": "premium",
-        "skills": [],
         "tools": ["read", "search", "write"],
         "head": None,
         "tail": None,

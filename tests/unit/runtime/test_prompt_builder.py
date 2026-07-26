@@ -32,7 +32,6 @@ def _make_agent(**overrides: object) -> Agent:
         "output": "正文",
         "permission": parse_permission({"read": ["state"], "write": ["notes"]}),
         "model": None,
-        "skills": [],
         "tools": ["read", "write"],
         "head": None,
         "tail": None,

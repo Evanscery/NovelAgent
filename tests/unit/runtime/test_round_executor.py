@@ -60,7 +60,6 @@ def _make_agent(
         output="test output",
         permission=permission,
         model=None,
-        skills=[],
         tools=tools if tools is not None else ["read", "search", "write", "call_agent", "await"],
         head=None,
         tail=None,
@@ -617,7 +616,6 @@ async def test_call_agent_resolves_id_first_via_tree_definition_id() -> None:
         input="i",
         output="o",
         permission=parse_permission({"read": ["state"], "write": []}),
-        skills=[],
         tools=[],
     )
     registry = _make_registry(director, builtin_writer, imported_writer)
@@ -664,12 +662,12 @@ async def test_call_agent_unpinned_ambiguous_name_is_rejected() -> None:
     writer_a = Agent(
         id="writer-a", name="writer", task="t", input="i", output="o",
         permission=parse_permission({"read": ["state"], "write": []}),
-        skills=[], tools=[],
+        tools=[],
     )
     writer_b = Agent(
         id="writer-b", name="writer", task="t", input="i", output="o",
         permission=parse_permission({"read": ["state"], "write": []}),
-        skills=[], tools=[],
+        tools=[],
     )
     registry = _make_registry(director, writer_a, writer_b)
     tree = _make_tree()  # nodes carry no definition_id
@@ -705,7 +703,6 @@ async def test_sub_agent_request_carries_own_system_prompt() -> None:
         input="检索指令",
         output="召回结果列表",
         permission=parse_permission({"read": ["state"], "write": []}),
-        skills=[],
         tools=["read"],
     )
     registry = _make_registry(director, recaller)

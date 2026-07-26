@@ -261,6 +261,7 @@ class ConfigResponse(BaseModel):
     mode: str | None = None
     models: dict[str, object] = Field(default_factory=dict)
     runtime: dict[str, object] = Field(default_factory=dict)
+    agents: dict[str, object] = Field(default_factory=dict)
     server: dict[str, object] = Field(default_factory=dict)
 
 
@@ -273,6 +274,7 @@ class PutGlobalConfigRequest(BaseModel):
 
     models: dict[str, object] | None = None
     runtime: dict[str, object] | None = None
+    agents: dict[str, object] | None = None
     server: dict[str, object] | None = None
 
 
@@ -290,6 +292,7 @@ class PutProjectConfigRequest(BaseModel):
     mode: str | None = None
     models: dict[str, object] | None = None
     runtime: dict[str, object] | None = None
+    agents: dict[str, object] | None = None
     server: dict[str, object] | None = None
 
     def has_updates(self) -> bool:
@@ -300,6 +303,7 @@ class PutProjectConfigRequest(BaseModel):
                 self.mode,
                 self.models,
                 self.runtime,
+                self.agents,
                 self.server,
             )
         )
@@ -313,13 +317,13 @@ class AgentConfigResponse(BaseModel):
     (todo 18 / plan scope).
     """
 
+    id: str = Field(description="Agent control identifier (unique, read-only)")
     name: str
     task: str
     input: str
     output: str
     permission: dict[str, list[str]]
     model: str | None = None
-    skills: list[str] = Field(default_factory=list)
     tools: list[str] = Field(default_factory=list)
     head: str | None = None
     tail: str | None = None
@@ -340,7 +344,6 @@ class PutAgentConfigRequest(BaseModel):
     output: str = Field(..., min_length=1)
     permission: dict[str, list[str]] = Field(..., description="Hash<string, vector> per guide:77-80")
     model: str | None = None
-    skills: list[str] = Field(default_factory=list)
     tools: list[str] = Field(default_factory=list)
     head: str | None = None
     tail: str | None = None

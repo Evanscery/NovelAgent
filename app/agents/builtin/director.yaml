@@ -7,7 +7,6 @@ permission:
   read: [state, outline, short_goal, notes]
   write: []
 model: premium
-skills: []
 tools: [read, write, list_files, glob_files, grep_lines, read_lines, call_agent, await, finalize]
 head: null
 tail: null

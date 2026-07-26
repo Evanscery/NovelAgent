@@ -1,4 +1,5 @@
 name: maintainer
+id: maintainer
 task: 更新/维护数据。根据本轮正文和状态变化，更新当前状态、细纲、变量、角色记忆、创作笔记。
 input: 大纲、短期目标、当前状态、变量、角色记忆、创作笔记、世界书、客观事实、本轮正文
 output: 更新后的状态/细纲/变量/角色记忆/创作笔记
@@ -6,7 +7,6 @@ permission:
   read: [outline, short_goal, state, variables, character_memory, notes, worldbook, facts]
   write: [state, short_goal, variables, character_memory, notes]
 model: standard
-skills: []
 tools: [read, write]
 head: null
 tail: null
