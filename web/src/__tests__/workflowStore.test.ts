@@ -38,7 +38,6 @@ const sampleAgent = (name: string): AgentConfigResponse => ({
   output: "out",
   permission: { read: ["state"], write: ["notes"] },
   model: null,
-  skills: [],
   tools: ["read", "search", "write"],
   head: null,
   tail: null,

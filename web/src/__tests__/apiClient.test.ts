@@ -367,7 +367,6 @@ describe("ApiClient.config", () => {
       output: "prose",
       permission: { read: ["state"] },
       model: null,
-      skills: [],
       tools: [],
       head: null,
       tail: null,

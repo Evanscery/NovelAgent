@@ -108,7 +108,6 @@ describe("Inspector rendering", () => {
       output: "prose",
       permission: { read: ["state", "outline"], write: ["notes"] },
       model: "premium",
-      skills: [],
       tools: ["read", "write"],
       head: null,
       tail: null,

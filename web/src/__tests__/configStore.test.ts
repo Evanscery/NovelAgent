@@ -33,7 +33,6 @@ const writerAgent = (): AgentConfigResponse => ({
   output: "prose",
   permission: { read: ["state", "outline"], write: ["notes"] },
   model: "standard",
-  skills: [],
   tools: ["read", "write"],
   head: null,
   tail: null,

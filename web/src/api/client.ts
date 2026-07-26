@@ -156,7 +156,6 @@ export interface AgentConfigResponse {
   output: string;
   permission: Record<string, string[]>;
   model: string | null;
-  skills: string[];
   tools: string[];
   head: string | null;
   tail: string | null;
@@ -170,7 +169,6 @@ export interface PutAgentConfigRequest {
   output: string;
   permission: Record<string, string[]>;
   model: string | null;
-  skills: string[];
   tools: string[];
   head: string | null;
   tail: string | null;

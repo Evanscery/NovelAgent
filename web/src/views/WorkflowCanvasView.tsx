@@ -124,16 +124,6 @@ function AgentEditForm({
         />
       </label>
       <label className="field">
-        <span className="field__label">Skills (逗号分隔)</span>
-        <input
-          className="field__input"
-          value={form.skills.join(", ")}
-          onChange={(e) =>
-            set("skills", e.target.value.split(",").map((s) => s.trim()).filter(Boolean))
-          }
-        />
-      </label>
-      <label className="field">
         <span className="field__label">Tools (逗号分隔)</span>
         <input
           className="field__input"

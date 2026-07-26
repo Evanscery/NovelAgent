@@ -149,7 +149,6 @@ describe("Inspector context (via store subscriptions)", () => {
         output: "prose",
         permission: { read: ["state"], write: ["notes"] },
         model: "premium",
-        skills: [],
         tools: ["read", "write"],
         head: null,
         tail: null,
