@@ -60,7 +60,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from app.agents.agent import Agent
-from app.agents.parser import parse_agent_to_prompt
+from app.agents.parser import render_agent_system_prompt
 from app.agents.tree_model import AGENT_KIND
 from app.agents.workflow import WorkflowTree, generate_flow_sequence
 from app.runtime.budget import BudgetTracker, FinalizeSignal
@@ -281,11 +281,15 @@ class RoundExecutor:
                 if tool_feedback
                 else ""
             )
-            director_prompt = parse_agent_to_prompt(
-                director,
-                context=context,
-                flow_sequence=flow_seq,
-            ) + feedback_block
+            # Mechanical adaptation until the PromptBuilder lands: the
+            # system prompt comes from the parser; the runtime context is
+            # appended here (it is conversation state, not agent config).
+            context_block = f"\n\n## 上下文\n{context}" if context else ""
+            director_prompt = (
+                render_agent_system_prompt(director, flow_sequence=flow_seq)
+                + context_block
+                + feedback_block
+            )
 
             # Send the director request through the runtime.
             try:
@@ -401,7 +405,8 @@ class RoundExecutor:
         director is the sole agent and its response text is the
         user-facing reply.
         """
-        prompt = parse_agent_to_prompt(director, context=context, flow_sequence="")
+        context_block = f"\n\n## 上下文\n{context}" if context else ""
+        prompt = render_agent_system_prompt(director) + context_block
         try:
             response = await self._runtime.send_request(director, self._runner, prompt)
         except Exception as exc:  # noqa: BLE001 -- chat must not crash

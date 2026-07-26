@@ -1,11 +1,18 @@
-"""Parse agent attributes -> prompt at runtime (config static, prompt dynamic).
+"""Render agent attributes -> system prompt at runtime (config static, prompt dynamic).
 
 Per ``docs/refactor_guide.md:75``: "这些属性硬存储在数据结构中，发送agent请求时，
 会调用parser将这些参数解析并组合成prompt". And per guide:378-384:
 "配置是静态的，Prompt 是动态生成的".
 
-This module is a **pure function** — no side effects, no I/O, deterministic.
-The same ``(agent, context)`` pair always produces byte-identical output.
+This module renders the agent's **system prompt** only: the stable,
+per-agent instruction block (task / input / output / permission / tools,
+plus the director-only workflow order). Runtime conversation state —
+history messages, the user message, reminders — is the runtime prompt
+builder's concern (:mod:`app.runtime.prompt_builder`), not the parser's.
+
+This module is a **pure function** — no side effects, no I/O,
+deterministic. The same ``(agent, flow_sequence)`` pair always produces
+byte-identical output.
 """
 
 from __future__ import annotations
@@ -34,8 +41,8 @@ def _format_permission_section(agent: Agent) -> str:
     )
 
 
-def parse_agent_to_prompt(agent: Agent, context: str = "", flow_sequence: str = "") -> str:
-    """Assemble a prompt string from the agent's attributes at runtime.
+def render_agent_system_prompt(agent: Agent, *, flow_sequence: str = "") -> str:
+    """Render the agent's system prompt from its attributes at runtime.
 
     The prompt is built dynamically from the agent's attributes (NOT
     loaded from a static ``.md`` file). Section order:
@@ -45,11 +52,9 @@ def parse_agent_to_prompt(agent: Agent, context: str = "", flow_sequence: str = 
     3. ``## 你将收到的输入``  (always)
     4. ``## 你的输出格式``   (always)
     5. ``## 权限限制``    (always — context isolation is mandatory)
-    6. ``## 可用技能``    (only if ``agent.skills`` is non-empty)
-    7. ``## 可用工具``    (always — read/write/list_files/glob_files/grep_lines/read_lines)
-    8. ``## 工作流执行顺序`` (only if *flow_sequence* is non-empty — director-only)
-    9. ``## 上下文``     (only if *context* is non-empty)
-    10. ``tail``        (appended if present)
+    6. ``## 可用工具``    (always — the agent's tool name list)
+    7. ``## 工作流执行顺序`` (only if *flow_sequence* is non-empty — director-only)
+    8. ``tail``        (appended if present)
 
     The ``flow_sequence`` parameter (todo 18) is the linear execution-order
     text generated from the workflow tree by
@@ -59,18 +64,16 @@ def parse_agent_to_prompt(agent: Agent, context: str = "", flow_sequence: str = 
     ``allow_recursive`` is a runtime-only attribute and is NEVER emitted
     into the prompt.
 
-    The function is deterministic: the same ``agent`` + ``context`` +
-    ``flow_sequence`` always produce byte-identical output.
+    The function is deterministic: the same ``agent`` + ``flow_sequence``
+    always produce byte-identical output.
 
     Args:
         agent:         The :class:`Agent` whose attributes drive the prompt.
-        context:       Optional runtime context string (e.g. recalled memory,
-            current state). Empty string means no context section.
         flow_sequence: Optional workflow execution-order text (director-only).
             Empty string means no 工作流执行顺序 section.
 
     Returns:
-        The assembled prompt as a markdown string with ``##`` sections.
+        The assembled system prompt as a markdown string with ``##`` sections.
     """
     sections: list[str] = []
 
@@ -82,16 +85,10 @@ def parse_agent_to_prompt(agent: Agent, context: str = "", flow_sequence: str = 
     sections.append(f"## 你的输出格式\n{agent.output}")
     sections.append(_format_permission_section(agent))
 
-    if agent.skills:
-        sections.append(f"## 可用技能\n{', '.join(agent.skills)}")
-
     sections.append(f"## 可用工具\n{', '.join(agent.tools)}")
 
     if flow_sequence:
         sections.append(f"## 工作流执行顺序\n{flow_sequence}")
-
-    if context:
-        sections.append(f"## 上下文\n{context}")
 
     if agent.tail is not None:
         sections.append(agent.tail)
