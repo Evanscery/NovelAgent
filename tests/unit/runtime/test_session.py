@@ -160,3 +160,77 @@ class TestProjectAgentOverrides:
             maximal_recursive_calling_depth=None,
         )
         assert session.registry.get("imported-writer").task == "imported task"
+
+
+class TestDirectorToolWiring:
+    @pytest.mark.asyncio
+    async def test_director_read_tool_call_is_dispatched_not_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        """create_round_session wires the director's ToolDispatcher
+        (director permission + project store), so a director ``read``
+        tool call is dispatched instead of rejected with
+        ``no_tools_surface`` (which used to happen because
+        director_tools was never passed)."""
+        from app.data.store import ResourceStore
+        from app.runtime.prompt_builder import RequestSpec
+        from app.runtime.runners.base import (
+            AgentResponse,
+            AgentRunner,
+            RunnerAgent,
+            TokenUsage,
+            ToolCall,
+        )
+        from app.runtime.session import run_session
+
+        store = ResourceStore(tmp_path)
+        resource = store.create_resource("state", "state-001")
+        store.write(resource, "current.md", "主角位于破庙。")
+
+        class _DirectorReadRunner(AgentRunner):
+            def __init__(self) -> None:
+                self.director_turns = 0
+
+            async def run(self, agent: RunnerAgent, request: RequestSpec) -> AgentResponse:
+                if agent.id == "director":
+                    self.director_turns += 1
+                    if self.director_turns == 1:
+                        return AgentResponse(
+                            text="读取状态",
+                            tool_calls=[
+                                ToolCall(
+                                    name="read",
+                                    args={"resource_type": "state"},
+                                    id="call_read",
+                                )
+                            ],
+                            usage=TokenUsage(10, 5),
+                        )
+                    return AgentResponse(
+                        text="完成",
+                        tool_calls=[ToolCall(name="finalize", args={})],
+                        usage=TokenUsage(10, 5),
+                    )
+                return AgentResponse(text="sub", usage=TokenUsage(5, 5))
+
+        runner = _DirectorReadRunner()
+        tree = _make_tree({})
+        session = create_round_session(
+            project_path=tmp_path,
+            project_id="proj-1",
+            context="ctx",
+            tree=tree,
+            max_iterations=10,
+            maximal_recursive_calling_depth=None,
+            runner_factory=lambda: runner,
+        )
+        result = await run_session(session)
+
+        assert result.finalize_reason == "explicit_finalize"
+        assert not any(
+            "no_tools_surface" in record.reason for record in result.rejected_calls
+        ), f"director read was rejected: {result.rejected_calls}"
+        # The read actually went through the scoped store (no tool_error).
+        assert not any(
+            "tool_error" in record.reason for record in result.rejected_calls
+        ), f"director read errored: {result.rejected_calls}"

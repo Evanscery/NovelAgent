@@ -19,16 +19,24 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 from app.agents.agent import Agent
 from app.agents.registry import AgentRegistry, build_project_registry
 from app.agents.tree_model import AGENT_KIND
 from app.agents.workflow import WorkflowTree
+from app.data.store import ResourceStore
 from app.runtime.budget import BudgetTracker
+from app.runtime.mcp import load_mcp_tools
+from app.runtime.permission import inject_into_tools
+from app.runtime.prompt_builder import PromptBuilder
 from app.runtime.round_executor import RoundExecutor, RoundResult
 from app.runtime.runners.base import AgentRunner
 from app.runtime.runners.mock_runner import MockRunner
 from app.runtime.runtime import Runtime
+from app.runtime.tool_catalog import build_default_catalog
+from app.runtime.tool_dispatcher import ScopedTools as ScopedToolsProtocol
+from app.runtime.tool_dispatcher import ToolDispatcher
 
 logger = logging.getLogger(__name__)
 
@@ -150,12 +158,29 @@ def create_round_session(
 
     depth = maximal_recursive_calling_depth if maximal_recursive_calling_depth is not None else 1
 
+    # Tool surface: the default catalog (builtin schemas + runtime impls)
+    # plus any MCP-mounted tools (seam only — no servers configured yet).
+    catalog = build_default_catalog()
+    load_mcp_tools(catalog, config=None)
+    prompts = PromptBuilder(catalog)
+
+    # The director's data tools: its own permission scoped over the
+    # project's resource store. Without this, every director read/write
+    # tool call would be rejected with no_tools_surface.
+    director_tools: ToolDispatcher | None = None
+    if agent_registry.has("director"):
+        director = agent_registry.get("director")
+        scoped = inject_into_tools(ResourceStore(project_path), director.permission)
+        director_tools = ToolDispatcher(cast(ScopedToolsProtocol, scoped), catalog)
+
     executor = RoundExecutor(
         runtime=runtime,
         runner=runner,
         registry=agent_registry,
         budget=budget,
+        director_tools=director_tools,
         maximal_recursive_calling_depth=depth,
+        prompts=prompts,
     )
 
     # time.monotonic() rather than the event-loop clock: this factory is
