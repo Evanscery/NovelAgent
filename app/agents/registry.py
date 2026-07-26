@@ -6,8 +6,13 @@ recaller, scout, writer, critic, maintainer. Each is defined by an
 the parser assembles the prompt at runtime.
 
 The registry resolves agent **names** to :class:`~app.agents.agent.Agent`
-instances. Workflow nodes carry an ``agent_name``; the registry turns
-that into the concrete agent for the runtime.
+instances by **id** (the control/storage identifier, per
+refactor_guide:63). ``id`` is unique per instance and is the
+workflow/tree-facing identifier; ``name`` is a display attribute
+(mutable, not guaranteed unique) and is resolved via
+:meth:`get_by_name` only on the user-facing surface (the API config
+path and the director's ``call_agent``, which the LLM drives by the
+human-readable name it sees in the flow sequence).
 """
 
 from __future__ import annotations
@@ -18,54 +23,111 @@ import yaml
 
 from app.agents.agent import Agent
 from app.agents.workflow import WorkflowTree
-from app.runtime.permission import parse_permission
 
 _BUILTIN_DIR = Path(__file__).parent / "builtin"
 _DEFAULT_WORKFLOW = Path(__file__).parent / "default_workflow.yaml"
 
+#: Sentinel for ambiguous name lookups in the name index.
+#: When multiple agents share a display name, the name maps to this
+#: sentinel so :meth:`AgentRegistry.get_by_name` can raise.
+_AMBIGUOUS: object = object()
+
 
 class AgentRegistry:
-    """Registry of :class:`Agent` instances keyed by agent name.
+    """Registry of :class:`Agent` instances keyed by agent **id**.
 
-    Agents are registered under their ``name`` attribute (NOT ``id`` —
-    ``id`` is unique per instance, ``name`` is the workflow-facing
-    identifier). Re-registering a name overwrites the previous agent.
+    Per refactor_guide:63, ``id`` is the control/storage identifier
+    (unique, read-only); ``name`` is a display attribute (mutable, not
+    guaranteed unique). The registry keys its primary index by ``id``;
+    a secondary name index supports :meth:`get_by_name` for the
+    user-facing surfaces (API config, director's ``call_agent``).
+
+    When ``replace=False`` (default), registering a duplicate id
+    raises -- this enforces id uniqueness on the load path. When
+    ``replace=True``, the agent at that id is overwritten (used for
+    per-project overrides).
     """
 
     def __init__(self) -> None:
         self._agents: dict[str, Agent] = {}
+        self._name_index: dict[str, str | object] = {}
 
-    def register(self, agent: Agent) -> None:
-        """Register *agent* under ``agent.name`` (overwrites prior)."""
-        self._agents[agent.name] = agent
+    def register(self, agent: Agent, *, replace: bool = False) -> None:
+        """Register *agent* under ``agent.id``.
 
-    def get(self, name: str) -> Agent:
-        """Return the agent registered under *name*.
+        When *replace* is False (default), a duplicate id raises
+        ValueError. When True, the existing agent at that id is
+        overwritten (per-project override path).
+        """
+        if not replace and agent.id in self._agents:
+            msg = f"AgentRegistry: duplicate agent id {agent.id!r}"
+            raise ValueError(msg)
+        self._agents[agent.id] = agent
+        self._rebuild_name_index()
+
+    def get(self, agent_id: str) -> Agent:
+        """Return the agent registered under *agent_id* (by id).
 
         Raises:
-            KeyError: if no agent is registered under *name*.
+            KeyError: if no agent is registered under *agent_id*.
         """
-        if name not in self._agents:
+        if agent_id not in self._agents:
+            msg = f"AgentRegistry: no agent with id {agent_id!r}"
+            raise KeyError(msg)
+        return self._agents[agent_id]
+
+    def has(self, agent_id: str) -> bool:
+        """True if an agent is registered under *agent_id* (by id)."""
+        return agent_id in self._agents
+
+    def list_ids(self) -> list[str]:
+        """Return the sorted list of registered agent **ids**."""
+        return sorted(self._agents.keys())
+
+    def get_by_name(self, name: str) -> Agent:
+        """Resolve an agent by its **display name**.
+
+        Used on user-facing surfaces (API config, director's
+        ``call_agent``). Raises if no agent has the name, or if the
+        name is ambiguous (multiple agents share it).
+        """
+        if name not in self._name_index:
             msg = f"AgentRegistry: no agent named {name!r}"
             raise KeyError(msg)
-        return self._agents[name]
+        result = self._name_index[name]
+        if result is _AMBIGUOUS:
+            msg = f"AgentRegistry: ambiguous agent name {name!r} (multiple agents share it)"
+            raise KeyError(msg)
+        return self._agents[result]  # type: ignore[index]
 
-    def has(self, name: str) -> bool:
-        """True if an agent is registered under *name*."""
-        return name in self._agents
+    def has_by_name(self, name: str) -> bool:
+        """True if exactly one agent is registered under *name*."""
+        entry = self._name_index.get(name)
+        return entry is not None and entry is not _AMBIGUOUS
 
-    def list(self) -> list[str]:
-        """Return the sorted list of registered agent names."""
-        return sorted(self._agents.keys())
+    def list_names(self) -> list[str]:
+        """Return the sorted list of unique (non-ambiguous) agent names."""
+        return sorted(
+            n for n, v in self._name_index.items() if v is not _AMBIGUOUS
+        )
+
+    def _rebuild_name_index(self) -> None:
+        """Rebuild the name-to-id index from the id-keyed agent map."""
+        self._name_index = {}
+        for agent in self._agents.values():
+            if agent.name in self._name_index:
+                self._name_index[agent.name] = _AMBIGUOUS
+            else:
+                self._name_index[agent.name] = agent.id
 
     # ── loaders ────────────────────────────────────────────────────────
 
     def load_builtin(self, builtin_dir: Path = _BUILTIN_DIR) -> None:
         """Load every ``*.yaml`` agent definition in *builtin_dir*.
 
-        Each yaml file defines one agent's attribute set. The file name
-        (sans ``.yaml``) is used as the agent's ``id`` if the yaml does
-        not specify one; ``name`` defaults to the id.
+        Each yaml file defines one agent's attribute set with an
+        explicit ``id`` field. Duplicate ids raise ValueError
+        (enforcing uniqueness on the load path).
         """
         for yaml_path in sorted(builtin_dir.glob("*.yaml")):
             agent = _load_agent_yaml(yaml_path)
@@ -89,23 +151,11 @@ class AgentRegistry:
 def _load_agent_yaml(path: Path) -> Agent:
     """Parse a single agent yaml file into an :class:`Agent`.
 
-    The yaml schema (attribute set, NOT a prompt)::
-
-        name: recaller
-        task: 召回数据...
-        input: 当前状态、世界书...
-        output: 召回结果文本
-        permission:
-          read: [state, character_memory, worldbook, facts, notes]
-          write: []
-        model: standard        # optional
-        skills: [recall]       # optional
-        tools: [read, list_files, glob_files, grep_lines, read_lines]  # optional, defaults to the 6 unified tools
-        head: |                # optional
-          ...
-        tail: |                # optional
-          ...
-        allow_recursive: true  # optional, defaults to true
+    Delegates to :meth:`Agent.from_dict` (the single load-path
+    constructor). An explicit, well-formed ``id`` is required -- there
+    is no file-stem fallback, because relying on a file name as
+    identity makes shared agents ambiguous (per refactor_guide:63:
+    ``id`` is the control/storage identifier).
 
     Args:
         path: Path to the agent yaml file.
@@ -114,83 +164,14 @@ def _load_agent_yaml(path: Path) -> Agent:
         The parsed :class:`Agent`.
 
     Raises:
-        ValueError: if required fields (name, task, input, output,
-            permission) are missing or permission is malformed.
+        ValueError: if required fields (including ``id``) are missing
+            or a field has the wrong type / an invalid id format.
     """
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         msg = f"Agent yaml {path!s}: expected a mapping at top level, got {type(raw).__name__}"
         raise ValueError(msg)
-
-    # Required fields.
-    for required in ("name", "task", "input", "output", "permission"):
-        if required not in raw:
-            msg = f"Agent yaml {path!s}: missing required field {required!r}"
-            raise ValueError(msg)
-
-    name = raw["name"]
-    if not isinstance(name, str) or not name.strip():
-        msg = f"Agent yaml {path!s}: 'name' must be a non-empty str"
-        raise ValueError(msg)
-
-    # id defaults to the file stem.
-    agent_id = raw.get("id", path.stem)
-    if not isinstance(agent_id, str) or not agent_id.strip():
-        msg = f"Agent yaml {path!s}: 'id' must be a non-empty str"
-        raise ValueError(msg)
-
-    # Permission.
-    perm_raw = raw["permission"]
-    if not isinstance(perm_raw, dict):
-        msg = f"Agent yaml {path!s}: 'permission' must be a mapping"
-        raise ValueError(msg)
-    permission = parse_permission(perm_raw)
-
-    # Optional fields.
-    model = raw.get("model")
-    if model is not None and not isinstance(model, str):
-        msg = f"Agent yaml {path!s}: 'model' must be a str or null"
-        raise ValueError(msg)
-
-    skills = raw.get("skills", [])
-    if not isinstance(skills, list):
-        msg = f"Agent yaml {path!s}: 'skills' must be a list"
-        raise ValueError(msg)
-
-    tools = raw.get("tools", ["read", "write", "list_files", "glob_files", "grep_lines", "read_lines"])
-    if not isinstance(tools, list):
-        msg = f"Agent yaml {path!s}: 'tools' must be a list"
-        raise ValueError(msg)
-
-    head = raw.get("head")
-    if head is not None and not isinstance(head, str):
-        msg = f"Agent yaml {path!s}: 'head' must be a str or null"
-        raise ValueError(msg)
-
-    tail = raw.get("tail")
-    if tail is not None and not isinstance(tail, str):
-        msg = f"Agent yaml {path!s}: 'tail' must be a str or null"
-        raise ValueError(msg)
-
-    allow_recursive = raw.get("allow_recursive", True)
-    if not isinstance(allow_recursive, bool):
-        msg = f"Agent yaml {path!s}: 'allow_recursive' must be a bool"
-        raise ValueError(msg)
-
-    return Agent(
-        id=agent_id,
-        name=name,
-        task=raw["task"],
-        input=raw["input"],
-        output=raw["output"],
-        permission=permission,
-        model=model,
-        skills=list(skills),
-        tools=list(tools),
-        head=head,
-        tail=tail,
-        allow_recursive=allow_recursive,
-    )
+    return Agent.from_dict(raw, source=f"agent yaml {path!s}")
 
 
 def load_workflow(path: Path = _DEFAULT_WORKFLOW) -> WorkflowTree:

@@ -78,12 +78,6 @@ if TYPE_CHECKING:
     from app.agents.registry import AgentRegistry
 
 
-# Director-specific tools the executor dispatches itself (not via
-# ToolDispatcher). The standard tools read/write/list_files/glob_files/
-# grep_lines/read_lines go through the director's ToolDispatcher (ScopedTools).
-_DIRECTOR_TOOLS: frozenset[str] = frozenset({"call_agent", "await", "finalize"})
-
-
 @dataclass(frozen=True)
 class RecursiveCallRecord:
     """Record of a single recursive (call_count > 1) agent call.
@@ -515,7 +509,7 @@ class RoundExecutor:
 
         # Resolve the target agent from the registry.
         try:
-            target_agent = self._registry.get(agent_name)
+            target_agent = self._registry.get_by_name(agent_name)
         except KeyError:
             rejected_calls.append(
                 RejectedCallRecord(agent=agent_name, reason="agent_not_in_registry")

@@ -28,14 +28,6 @@ from typing import cast
 import pytest
 
 from app.agents.registry import build_default_registry, load_workflow
-from app.runtime.runners.base import (
-    AgentResponse,
-    AgentRunner,
-    RunnerAgent,
-    TokenUsage,
-    ToolCall,
-)
-from app.runtime.runners.mock_runner import MockRunner
 from app.data.project_repo import ProjectRepo
 from app.data.store import ResourceStore
 from app.runtime.budget import BudgetTracker
@@ -47,6 +39,14 @@ from app.runtime.round_executor import (
     RoundExecutor,
     RoundResult,
 )
+from app.runtime.runners.base import (
+    AgentResponse,
+    AgentRunner,
+    RunnerAgent,
+    TokenUsage,
+    ToolCall,
+)
+from app.runtime.runners.mock_runner import MockRunner
 from app.runtime.runtime import Runtime
 from app.runtime.tool_dispatcher import (
     ScopedTools as ScopedToolsProtocol,
@@ -114,7 +114,7 @@ def test_build_default_registry_loads_six_agents() -> None:
     """``build_default_registry()`` loads all 6 built-in agents
     (director + recaller + scout + writer + critic + maintainer)."""
     registry = build_default_registry()
-    names = registry.list()
+    names = registry.list_ids()
     assert set(names) == {"director", "recaller", "scout", "writer", "critic", "maintainer"}
 
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from app.agents.agent import Agent
+from app.agents.agent import Agent, get_default_tools, set_default_tools
 from app.agents.registry import (
     AgentRegistry,
     _load_agent_yaml,
@@ -16,14 +16,13 @@ from app.agents.registry import (
 from app.agents.workflow import WorkflowTree
 from app.runtime.permission import Permission
 
-
 # ── AgentRegistry basic ops ────────────────────────────────────────────
 
 
 class TestAgentRegistry:
     """AgentRegistry register/get/list/has."""
 
-    def test_register_and_get(self) -> None:
+    def test_register_and_get_by_id(self) -> None:
         registry = AgentRegistry()
         agent = Agent(
             id="a-1",
@@ -34,15 +33,34 @@ class TestAgentRegistry:
             permission=Permission(rules={}),
         )
         registry.register(agent)
-        assert registry.has("recaller")
-        assert registry.get("recaller") is agent
+        assert registry.has("a-1")
+        assert registry.get("a-1") is agent
 
-    def test_get_missing_raises_key_error(self) -> None:
+    def test_get_by_name_resolves_display_name(self) -> None:
         registry = AgentRegistry()
-        with pytest.raises(KeyError, match="no agent named"):
+        agent = Agent(
+            id="a-1",
+            name="recaller",
+            task="t",
+            input="i",
+            output="o",
+            permission=Permission(rules={}),
+        )
+        registry.register(agent)
+        assert registry.has_by_name("recaller")
+        assert registry.get_by_name("recaller") is agent
+
+    def test_get_missing_id_raises_key_error(self) -> None:
+        registry = AgentRegistry()
+        with pytest.raises(KeyError, match="no agent with id"):
             registry.get("nonexistent")
 
-    def test_list_returns_sorted_names(self) -> None:
+    def test_get_by_name_missing_raises_key_error(self) -> None:
+        registry = AgentRegistry()
+        with pytest.raises(KeyError, match="no agent named"):
+            registry.get_by_name("nonexistent")
+
+    def test_list_returns_sorted_ids(self) -> None:
         registry = AgentRegistry()
         for name in ["writer", "recaller", "critic"]:
             registry.register(
@@ -55,9 +73,48 @@ class TestAgentRegistry:
                     permission=Permission(rules={}),
                 )
             )
-        assert registry.list() == ["critic", "recaller", "writer"]
+        assert registry.list_ids() == ["id-critic", "id-recaller", "id-writer"]
 
-    def test_register_overwrites(self) -> None:
+    def test_list_names_returns_sorted_names(self) -> None:
+        registry = AgentRegistry()
+        for name in ["writer", "recaller", "critic"]:
+            registry.register(
+                Agent(
+                    id=f"id-{name}",
+                    name=name,
+                    task="t",
+                    input="i",
+                    output="o",
+                    permission=Permission(rules={}),
+                )
+            )
+        assert registry.list_names() == ["critic", "recaller", "writer"]
+
+    def test_register_duplicate_id_raises(self) -> None:
+        registry = AgentRegistry()
+        a1 = Agent(
+            id="a-1", name="x", task="t1", input="i", output="o", permission=Permission(rules={})
+        )
+        a2 = Agent(
+            id="a-1", name="y", task="t2", input="i", output="o", permission=Permission(rules={})
+        )
+        registry.register(a1)
+        with pytest.raises(ValueError, match="duplicate agent id"):
+            registry.register(a2)
+
+    def test_register_replace_overwrites_at_same_id(self) -> None:
+        registry = AgentRegistry()
+        a1 = Agent(
+            id="a-1", name="x", task="t1", input="i", output="o", permission=Permission(rules={})
+        )
+        a2 = Agent(
+            id="a-1", name="x", task="t2", input="i", output="o", permission=Permission(rules={})
+        )
+        registry.register(a1)
+        registry.register(a2, replace=True)
+        assert registry.get("a-1").task == "t2"
+
+    def test_get_by_name_ambiguous_raises(self) -> None:
         registry = AgentRegistry()
         a1 = Agent(
             id="a-1", name="x", task="t1", input="i", output="o", permission=Permission(rules={})
@@ -67,7 +124,20 @@ class TestAgentRegistry:
         )
         registry.register(a1)
         registry.register(a2)
-        assert registry.get("x").task == "t2"
+        with pytest.raises(KeyError, match="ambiguous"):
+            registry.get_by_name("x")
+
+    def test_has_by_name_false_for_ambiguous(self) -> None:
+        registry = AgentRegistry()
+        a1 = Agent(
+            id="a-1", name="x", task="t1", input="i", output="o", permission=Permission(rules={})
+        )
+        a2 = Agent(
+            id="a-2", name="x", task="t2", input="i", output="o", permission=Permission(rules={})
+        )
+        registry.register(a1)
+        registry.register(a2)
+        assert not registry.has_by_name("x")
 
 
 # ── Built-in agents loading ────────────────────────────────────────────
@@ -78,7 +148,7 @@ class TestBuiltinAgents:
 
     def test_load_builtin_loads_5_agents(self) -> None:
         registry = build_default_registry()
-        names = registry.list()
+        names = registry.list_ids()
         assert "recaller" in names
         assert "scout" in names
         assert "writer" in names
@@ -113,10 +183,10 @@ class TestBuiltinAgents:
         assert maintainer.permission.allowed("write", "character_memory")
         assert maintainer.permission.allowed("write", "notes")
 
-    def test_recaller_tools_are_read_and_search_only(self) -> None:
+    def test_recaller_tools_are_read_and_file_io(self) -> None:
         registry = build_default_registry()
         recaller = registry.get("recaller")
-        assert recaller.tools == ["read", "search"]
+        assert recaller.tools == ["read", "list_files", "glob_files", "grep_lines", "read_lines"]
         assert "write" not in recaller.tools
 
     def test_recaller_cannot_write_anything(self) -> None:
@@ -134,7 +204,7 @@ class TestBuiltinAgents:
         registry = build_default_registry()
         scout = registry.get("scout")
         assert scout.permission.rules.get("write", ()) == ()
-        assert scout.tools == ["read", "search"]
+        assert scout.tools == ["read", "list_files", "glob_files", "grep_lines", "read_lines"]
 
 
 # ── _load_agent_yaml ───────────────────────────────────────────────────
@@ -146,6 +216,7 @@ class TestLoadAgentYaml:
     def test_load_minimal_agent_yaml(self, tmp_path: Path) -> None:
         yaml_content = """
 name: test_agent
+id: test_agent
 task: 测试任务
 input: 输入
 output: 输出
@@ -155,16 +226,27 @@ permission:
 """
         path = tmp_path / "test_agent.yaml"
         path.write_text(yaml_content, encoding="utf-8")
-        agent = _load_agent_yaml(path)
+        # The minimal yaml omits `tools:`. Pre-populate the module-level
+        # default-tools cache so the fallback behaviour is exercised; restore
+        # the prior cache state afterwards to keep tests isolated.
+        prior = get_default_tools()
+        set_default_tools(
+            ["read", "write", "list_files", "glob_files", "grep_lines", "read_lines"]
+        )
+        try:
+            agent = _load_agent_yaml(path)
+        finally:
+            set_default_tools(prior)
         assert agent.name == "test_agent"
         assert agent.id == "test_agent"
         assert agent.task == "测试任务"
         assert agent.allow_recursive is True
-        assert agent.tools == ["read", "search", "write"]
+        assert agent.tools == ["read", "write", "list_files", "glob_files", "grep_lines", "read_lines"]
 
     def test_load_agent_yaml_with_allow_recursive_false(self, tmp_path: Path) -> None:
         yaml_content = """
 name: maintainer
+id: maintainer
 task: 维护
 input: 输入
 output: 输出
@@ -231,7 +313,7 @@ class TestBuildDefaultRegistry:
     def test_build_default_registry_works(self) -> None:
         registry = build_default_registry()
         assert isinstance(registry, AgentRegistry)
-        assert len(registry.list()) == 6
+        assert len(registry.list_ids()) == 6
 
     def test_registry_and_workflow_together(self) -> None:
         """Every agent_name in the default workflow exists in the registry."""
@@ -240,4 +322,4 @@ class TestBuildDefaultRegistry:
         for node in tree.all_nodes.values():
             if node.agent_name == "director":
                 continue
-            assert registry.has(node.agent_name), f"agent {node.agent_name!r} missing from registry"
+            assert registry.has_by_name(node.agent_name), f"agent {node.agent_name!r} missing from registry"

@@ -18,9 +18,9 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from app.runtime.runners.mock_runner import MockRunner
 from app.api.routes import workflow as workflow_routes
 from app.api.server import create_app
+from app.runtime.runners.mock_runner import MockRunner
 
 # ── fixtures ─────────────────────────────────────────────────────────────
 
@@ -257,3 +257,18 @@ class TestStopWorkflow:
         assert "running" in second.json()["detail"].lower()
         # The 409 response names the existing running round.
         assert "round_blocker" in second.json()["detail"]
+
+
+# ── default workflow fallback path ───────────────────────────────────────
+
+
+class TestDefaultWorkflowFallback:
+    def test_fallback_path_exists_and_loads(self, tmp_path: Path) -> None:
+        """A project without workflow.yaml falls back to the built-in
+        default workflow shipped at app/agents/default_workflow.yaml.
+
+        Regression: the fallback used to resolve to <repo>/app/app/agents/
+        (an extra "app" segment), which does not exist.
+        """
+        tree = workflow_routes._load_workflow_tree(tmp_path)
+        assert tree.node_count() > 0

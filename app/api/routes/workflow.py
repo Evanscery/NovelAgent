@@ -204,7 +204,7 @@ def _load_workflow_tree(project_path: Path) -> WorkflowTree:
     if wf_path.exists():
         return load_workflow(wf_path)
     # Fall back to the built-in default workflow shipped with the agent layer.
-    return load_workflow(Path(__file__).resolve().parents[2] / "app" / "agents" / "default_workflow.yaml")
+    return load_workflow(Path(__file__).resolve().parents[2] / "agents" / "default_workflow.yaml")
 
 
 async def _run_round_background(record: RoundRecord, session: RoundSession) -> None:

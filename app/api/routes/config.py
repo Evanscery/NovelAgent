@@ -3,7 +3,8 @@
 Endpoints
 ---------
 * ``GET  /api/config``                            — global config
-  (``config/models.yaml`` + ``config/runtime.yaml`` + ``config/server.yaml``).
+  (``config/models.yaml`` + ``config/runtime.yaml`` + ``config/agents.yaml``
+  + ``config/server.yaml``).
 * ``PUT  /api/config``                            — write back one or more
   global tier files.
 * ``GET  /api/config/{project_id}``               — per-project merged
@@ -55,6 +56,7 @@ _VALID_MODES = {"novel", "rp"}
 _GLOBAL_TIER_FILES: dict[str, tuple[Path, str | None]] = {
     "models": (Path("config") / "models.yaml", None),
     "runtime": (Path("config") / "runtime.yaml", None),
+    "agents": (Path("config") / "agents.yaml", None),
     "server": (Path("config") / "server.yaml", "server"),
 }
 
@@ -120,26 +122,18 @@ def _global_tier_blob(root: Path, name: str) -> dict[str, Any]:
 
 
 def _dump_agent_to_dict(agent: Agent) -> dict[str, Any]:
-    """Serialise an :class:`Agent` back to its yaml dict shape."""
-    return {
-        "name": agent.name,
-        "task": agent.task,
-        "input": agent.input,
-        "output": agent.output,
-        "permission": {
-            action: list(vector) for action, vector in agent.permission.rules.items()
-        },
-        "model": agent.model,
-        "skills": list(agent.skills),
-        "tools": list(agent.tools),
-        "head": agent.head,
-        "tail": agent.tail,
-        "allow_recursive": agent.allow_recursive,
-    }
+    """Serialise an :class:`Agent` back to its yaml dict shape.
+
+    Delegates to :meth:`Agent.to_dict` so the output includes ``id``
+    (the control identifier) -- a serialised agent is self-contained
+    and shareable.
+    """
+    return agent.to_dict()
 
 
 def _agent_to_response(agent: Agent) -> AgentConfigResponse:
     return AgentConfigResponse(
+        id=agent.id,
         name=agent.name,
         task=agent.task,
         input=agent.input,
@@ -160,7 +154,10 @@ def _load_project_registry(project_path: Path) -> AgentRegistry:
     """Build an :class:`AgentRegistry` for *project_path*.
 
     Loads the built-in agents first, then overlays any per-project
-    override files in ``workspaces/<id>/agents/*.yaml``.
+    override files in ``workspaces/<id>/agents/*.yaml``. Per-agent yamls
+    without a ``tools:`` field inherit the cached
+    ``config/agents.yaml`` default (see
+    :func:`app.agents.agent.get_default_tools`).
     """
     registry = build_default_registry()
     override_dir = project_path / "agents"
@@ -170,37 +167,25 @@ def _load_project_registry(project_path: Path) -> AgentRegistry:
             if not raw:
                 continue
             try:
-                agent = _dict_to_agent(raw, fallback_id=yaml_path.stem)
+                agent = _dict_to_agent(raw)
             except (ValueError, TypeError) as exc:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=f"Project agent override {yaml_path!s} is invalid: {exc}",
                 ) from exc
-            registry.register(agent)
+            registry.register(agent, replace=True)
     return registry
 
 
-def _dict_to_agent(raw: dict[str, Any], *, fallback_id: str) -> Agent:
-    """Build an :class:`Agent` from a yaml dict (validates required fields)."""
-    for required in ("name", "task", "input", "output", "permission"):
-        if required not in raw:
-            msg = f"missing required field {required!r}"
-            raise ValueError(msg)
-    permission = parse_permission(dict[str, object](raw["permission"]))
-    return Agent(
-        id=raw.get("id", fallback_id),
-        name=raw["name"],
-        task=raw["task"],
-        input=raw["input"],
-        output=raw["output"],
-        permission=permission,
-        model=raw.get("model"),
-        skills=list(raw.get("skills", [])),
-        tools=list(raw.get("tools", ["read", "search", "write"])),
-        head=raw.get("head"),
-        tail=raw.get("tail"),
-        allow_recursive=bool(raw.get("allow_recursive", True)),
-    )
+def _dict_to_agent(raw: dict[str, Any]) -> Agent:
+    """Build an :class:`Agent` from a yaml dict.
+
+    Delegates to :meth:`Agent.from_dict` (the single load-path
+    constructor). An explicit ``id`` is required -- there is no
+    file-stem fallback, because relying on a file name as identity
+    makes shared agents ambiguous (per refactor_guide:63).
+    """
+    return Agent.from_dict(raw, source="project agent override")
 
 
 # ── Global config ────────────────────────────────────────────────────────
@@ -208,11 +193,12 @@ def _dict_to_agent(raw: dict[str, Any], *, fallback_id: str) -> Agent:
 
 @router.get("", response_model=ConfigResponse)
 def get_global_config(root: RootDep) -> ConfigResponse:
-    """Return the global config (models + runtime + server tiers)."""
+    """Return the global config (models + runtime + agents + server tiers)."""
     return ConfigResponse(
         project_id="",
         models=_global_tier_blob(root, "models"),
         runtime=_global_tier_blob(root, "runtime"),
+        agents=_global_tier_blob(root, "agents"),
         server=_global_tier_blob(root, "server"),
     )
 
@@ -224,15 +210,16 @@ def put_global_config(req: PutGlobalConfigRequest, root: RootDep) -> ConfigRespo
     Each provided blob replaces that tier file's content wholesale; the
     on-disk wrapper (if any) is preserved. Omitted tiers are untouched.
     """
-    if req.models is None and req.runtime is None and req.server is None:
+    if req.models is None and req.runtime is None and req.agents is None and req.server is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No fields to update (provide models, runtime, and/or server)",
+            detail="No fields to update (provide models, runtime, agents, and/or server)",
         )
 
     for name, blob in (
         ("models", req.models),
         ("runtime", req.runtime),
+        ("agents", req.agents),
         ("server", req.server),
     ):
         if blob is None:
@@ -250,6 +237,7 @@ def put_global_config(req: PutGlobalConfigRequest, root: RootDep) -> ConfigRespo
         project_id="",
         models=_global_tier_blob(root, "models"),
         runtime=_global_tier_blob(root, "runtime"),
+        agents=_global_tier_blob(root, "agents"),
         server=_global_tier_blob(root, "server"),
     )
 
@@ -262,10 +250,18 @@ def put_global_config(req: PutGlobalConfigRequest, root: RootDep) -> ConfigRespo
 def list_project_agents(
     project_id: ProjectIdPath, root: RootDep
 ) -> list[AgentConfigResponse]:
-    """List all agents visible to *project_id* (built-in + project overrides)."""
+    """List all agents visible to *project_id* (built-in + project overrides).
+
+    Per-agent overrides apply; the inherited default (when an
+    override yaml omits ``tools:``) is the global cached value from
+    ``config/agents.yaml`` — per-project ``agents.default_tools`` in
+    ``config.yaml`` is honoured only by :func:`get_project_config` /
+    :func:`put_project_config` (i.e. the merge is observable by the
+    front-end; the runtime default remains global).
+    """
     path = _resolve_project(root, project_id)
     registry = _load_project_registry(path)
-    return [_agent_to_response(registry.get(name)) for name in registry.list()]
+    return [_agent_to_response(registry.get(agent_id)) for agent_id in registry.list_ids()]
 
 
 @router.put("/{project_id}/agents/{name}", response_model=AgentConfigResponse)
@@ -289,7 +285,7 @@ def put_project_agent(
 
     path = _resolve_project(root, project_id)
     registry = _load_project_registry(path)
-    if not registry.has(name):
+    if not registry.has_by_name(name):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent {name!r} is not registered in project {project_id!r}",
@@ -306,7 +302,7 @@ def put_project_agent(
             detail=f"Invalid permission: {exc}",
         ) from exc
 
-    existing = registry.get(name)
+    existing = registry.get_by_name(name)
     new_agent = Agent(
         id=existing.id,
         name=req.name,
@@ -344,6 +340,7 @@ def get_project_config(project_id: ProjectIdPath, root: RootDep) -> ConfigRespon
         mode=cfg.mode,
         models=cfg.models.model_dump(),
         runtime=cfg.runtime.model_dump(),
+        agents=cfg.agents.model_dump(),
         server=cfg.server.model_dump(),
     )
 
@@ -358,7 +355,7 @@ def put_project_config(
     if not req.has_updates():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No fields to update (provide display_name, mode, models, runtime, and/or server)",
+            detail="No fields to update (provide display_name, mode, models, runtime, agents, and/or server)",
         )
     if req.mode is not None and req.mode not in _VALID_MODES:
         raise HTTPException(
@@ -373,7 +370,7 @@ def put_project_config(
         raw["display_name"] = req.display_name
     if req.mode is not None:
         raw["mode"] = req.mode
-    for name in ("models", "runtime", "server"):
+    for name in ("models", "runtime", "agents", "server"):
         blob = getattr(req, name)
         if blob is not None:
             raw[name] = dict(blob)
