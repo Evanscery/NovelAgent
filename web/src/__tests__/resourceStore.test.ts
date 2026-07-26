@@ -152,6 +152,25 @@ describe("resourceStore.save", () => {
     expect(store.getState().dirty).toBe(false);
   });
 
+  it("refuses to save empty content (backend min_length=1 would 422)", async () => {
+    const store = makeStore();
+    store.setState({
+      projectId: "p1",
+      activeType: "state",
+      content: {
+        project_id: "p1",
+        type: "state",
+        title: "当前状态",
+        read_only: false,
+        content: "old",
+        files: ["content.md"],
+      },
+    });
+    await store.getState().save("");
+    expect(mock.put).not.toHaveBeenCalled();
+    expect(store.getState().error).toBe("内容不能为空");
+  });
+
   it("refuses to save read-only variables", async () => {
     const store = makeStore();
     store.setState({

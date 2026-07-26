@@ -3,9 +3,10 @@
  *
  * Holds the user-editable CanvasGraph (nodes/wires) for the active project
  * and exposes actions to load it from the backend, mutate it, export/import
- * JSON, and persist per-agent attribute edits. The canvas graph is the
- * user-facing shape (CanvasGraph in app/agents/workflow.py); the backend
- * parses it into a WorkflowTree at run time.
+ * JSON, and persist per-agent attribute edits. The canvas graph is loaded
+ * from GET /api/workflow/{id}/canvas (the real workflow.yaml shape) and
+ * saved back via PUT .../canvas; agent attribute sets are loaded from
+ * GET /api/config/{id}/agents for the node side panel.
  *
  * The canvas is comfy-UI-like, nodes/wires/
  * JSON-export. The canvas saves CONFIG (agent attribute
@@ -17,30 +18,15 @@ import {
   api as defaultApi,
   type AgentConfigResponse,
   type ApiClient,
+  type CanvasGraphData,
+  type CanvasNodeData,
+  type CanvasWireData,
   type PutAgentConfigRequest,
 } from "@/api/client";
+import { apiErrorMessage } from "@/api/errors";
 import { canvasGraphDataSchema } from "@/schemas/canvasGraph";
 
-/** User-canvas node (mirrors app/agents/workflow.py CanvasNode). */
-export interface CanvasNodeData {
-  id: string;
-  agent_name: string;
-  description: string;
-  params: Record<string, unknown>;
-}
-
-/** User-canvas wire (mirrors app/agents/workflow.py CanvasWire). */
-export interface CanvasWireData {
-  from_node: string;
-  to_node: string;
-  repeat_count: number;
-}
-
-/** The full canvas graph (mirrors CanvasGraph.to_dict-ish shape). */
-export interface CanvasGraphData {
-  nodes: CanvasNodeData[];
-  wires: CanvasWireData[];
-}
+export type { CanvasGraphData, CanvasNodeData, CanvasWireData };
 
 /** A node selected for side-panel editing. */
 export interface SelectedNode {
@@ -70,6 +56,7 @@ export interface WorkflowStoreState {
   removeWire: (from: string, to: string) => void;
   exportJson: () => string;
   importJson: (raw: string) => void;
+  saveCanvas: () => Promise<void>;
   saveAgent: (name: string, data: PutAgentConfigRequest) => Promise<void>;
   clearError: () => void;
 }
@@ -90,35 +77,21 @@ export function createWorkflowStore(apiClient: ApiClient = defaultApi) {
     async load(projectId) {
       set({ loading: true, error: null, projectId });
       try {
-        const agents = await apiClient.getAgents(projectId);
-        // Build a default canvas from the agent registry if the project has
-        // no workflow.yaml yet: one node per agent, linear chain. The
-        // backend /api/config/{id} does not currently expose workflow.yaml
-        // directly; we derive a minimal canvas from the agent list so the
-        // view is never empty. A future workflow endpoint can replace this.
-        const nodes: CanvasNodeData[] = agents.map((a) => ({
-          id: a.name,
-          agent_name: a.name,
-          description: a.task,
-          params: {},
-        }));
-        const wires: CanvasWireData[] = [];
-        for (let i = 0; i < agents.length - 1; i++) {
-          wires.push({
-            from_node: agents[i].name,
-            to_node: agents[i + 1].name,
-            repeat_count: 1,
-          });
-        }
+        // The canvas endpoint returns the REAL graph a round would run
+        // (workflow.yaml or the shipped default); the agent list feeds
+        // the node side panel for attribute editing.
+        const [canvas, agents] = await Promise.all([
+          apiClient.getCanvas(projectId),
+          apiClient.getAgents(projectId),
+        ]);
         set({
-          canvas: { nodes, wires },
+          canvas,
           agents,
           loading: false,
           dirty: false,
         });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        set({ loading: false, error: msg });
+        set({ loading: false, error: apiErrorMessage(e) });
       }
     },
 
@@ -193,6 +166,18 @@ export function createWorkflowStore(apiClient: ApiClient = defaultApi) {
       set({ canvas: parsed, dirty: true });
     },
 
+    async saveCanvas() {
+      const pid = get().projectId;
+      if (!pid) return;
+      set({ saving: true, error: null });
+      try {
+        const canvas = await apiClient.putCanvas(pid, get().canvas);
+        set({ canvas, saving: false, dirty: false });
+      } catch (e) {
+        set({ saving: false, error: apiErrorMessage(e) });
+      }
+    },
+
     async saveAgent(name, data) {
       const pid = get().projectId;
       if (!pid) return;
@@ -200,10 +185,9 @@ export function createWorkflowStore(apiClient: ApiClient = defaultApi) {
       try {
         await apiClient.putAgent(pid, name, data);
         const agents = await apiClient.getAgents(pid);
-        set({ agents, saving: false, dirty: false });
+        set({ agents, saving: false });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        set({ saving: false, error: msg });
+        set({ saving: false, error: apiErrorMessage(e) });
       }
     },
 

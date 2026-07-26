@@ -150,6 +150,7 @@ export interface PutProjectConfigRequest {
 }
 
 export interface AgentConfigResponse {
+  id: string;
   name: string;
   task: string;
   input: string;
@@ -195,8 +196,39 @@ export interface NovelChapterResponse {
 
 export interface ImportRequest {
   source?: string | null;
+  card?: Record<string, unknown> | null;
   project_id?: string | null;
-  format?: string | null;
+  display_name?: string | null;
+  mode?: string | null;
+}
+
+export interface ImportResponse {
+  project_id: string;
+  display_name: string;
+  mode: string;
+  resources_created: string[];
+  front_scripts_written: number;
+  paths: Record<string, string>;
+}
+
+// ── Canvas wire types (mirror CanvasGraphModel in app/api/schemas.py) ─────
+
+export interface CanvasNodeData {
+  id: string;
+  agent_name: string;
+  description: string;
+  params: Record<string, unknown>;
+}
+
+export interface CanvasWireData {
+  from_node: string;
+  to_node: string;
+  repeat_count: number;
+}
+
+export interface CanvasGraphData {
+  nodes: CanvasNodeData[];
+  wires: CanvasWireData[];
 }
 
 // ── Client ────────────────────────────────────────────────────────────────
@@ -254,6 +286,24 @@ export class ApiClient {
   }
 
   // ── workflow: /api/workflow ────────────────────────────────────────────
+  async getCanvas(projectId: string): Promise<CanvasGraphData> {
+    const res = await this.http.get<CanvasGraphData>(
+      `/workflow/${encodeURIComponent(projectId)}/canvas`,
+    );
+    return res.data;
+  }
+
+  async putCanvas(
+    projectId: string,
+    graph: CanvasGraphData,
+  ): Promise<CanvasGraphData> {
+    const res = await this.http.put<CanvasGraphData>(
+      `/workflow/${encodeURIComponent(projectId)}/canvas`,
+      graph,
+    );
+    return res.data;
+  }
+
   async runWorkflow(
     projectId: string,
     body: RunWorkflowRequest = {},
@@ -425,8 +475,9 @@ export class ApiClient {
   }
 
   // ── import: /api/import ────────────────────────────────────────────────
-  async postImport(data: ImportRequest): Promise<void> {
-    await this.http.post("/import", data);
+  async postImport(data: ImportRequest): Promise<ImportResponse> {
+    const res = await this.http.post<ImportResponse>("/import", data);
+    return res.data;
   }
 }
 

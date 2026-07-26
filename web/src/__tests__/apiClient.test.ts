@@ -113,6 +113,27 @@ describe("ApiClient.projects", () => {
 });
 
 describe("ApiClient.workflow", () => {
+  it("getCanvas GET /workflow/{id}/canvas -> CanvasGraphData", async () => {
+    const graph = {
+      nodes: [{ id: "n1", agent_name: "writer", description: "", params: {} }],
+      wires: [{ from_node: "n1", to_node: "n1", repeat_count: 1 }],
+    };
+    mock.get.mockResolvedValueOnce(data(graph));
+    const c = client();
+    const result = await c.getCanvas("abc");
+    expect(mock.get).toHaveBeenCalledWith("/workflow/abc/canvas");
+    expect(result).toEqual(graph);
+  });
+
+  it("putCanvas PUT /workflow/{id}/canvas with the graph body", async () => {
+    const graph = { nodes: [], wires: [] };
+    mock.put.mockResolvedValueOnce(data(graph));
+    const c = client();
+    const result = await c.putCanvas("abc", graph);
+    expect(mock.put).toHaveBeenCalledWith("/workflow/abc/canvas", graph);
+    expect(result).toEqual(graph);
+  });
+
   it("runWorkflow POST /workflow/{id}/run", async () => {
     mock.post.mockResolvedValueOnce(
       data({
@@ -405,10 +426,39 @@ describe("ApiClient.novel", () => {
 });
 
 describe("ApiClient.import", () => {
-  it("postImport POST /import", async () => {
-    mock.post.mockResolvedValueOnce({ status: 501 });
+  it("postImport POST /import with inline card returns ImportResponse", async () => {
+    const response = {
+      project_id: "proj_1",
+      display_name: "Seraphina",
+      mode: "rp",
+      resources_created: ["outline", "worldbook"],
+      front_scripts_written: 1,
+      paths: { outline: "resources/outline/content.md" },
+    };
+    mock.post.mockResolvedValueOnce(data(response));
     const c = client();
-    await expect(c.postImport({ source: "card.json" })).resolves.toBeUndefined();
+    const body = {
+      card: { spec: "chara_card_v2", data: { name: "Seraphina" } },
+      display_name: "Seraphina",
+      mode: "rp",
+    };
+    const result = await c.postImport(body);
+    expect(mock.post).toHaveBeenCalledWith("/import", body);
+    expect(result).toEqual(response);
+  });
+
+  it("postImport POST /import with a source path", async () => {
+    const response = {
+      project_id: "p",
+      display_name: "x",
+      mode: "novel",
+      resources_created: [],
+      front_scripts_written: 0,
+      paths: {},
+    };
+    mock.post.mockResolvedValueOnce(data(response));
+    const c = client();
+    await c.postImport({ source: "card.json" });
     expect(mock.post).toHaveBeenCalledWith("/import", { source: "card.json" });
   });
 });

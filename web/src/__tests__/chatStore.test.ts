@@ -128,19 +128,51 @@ describe("chatStore.remove (rollback)", () => {
 });
 
 describe("chatStore.retry", () => {
-  it("appends the retried exchange + records the new branch", async () => {
+  it("refetches the whole server log after retry (backend rolled back)", async () => {
+    // The backend rolls back to BEFORE the retried message and appends a
+    // fresh exchange — the old local list (m3/m4 from turn t2) is stale.
     mock.post.mockResolvedValueOnce(
       data({
         branch: "branch_abc",
-        user_message: msg("u2", "user", "again", "t3"),
+        user_message: msg("u2", "user", "b", "t3"),
         director_message: msg("d2", "director", "redo", "t3"),
       }),
     );
+    // Server log after rollback + re-send: t1 exchange survives, t2 is gone,
+    // the new t3 exchange is appended.
+    const serverLog = [
+      msg("m1", "user", "a", "t1"),
+      msg("m2", "director", "A", "t1"),
+      msg("u2", "user", "b", "t3"),
+      msg("d2", "director", "redo", "t3"),
+    ];
+    mock.get.mockResolvedValueOnce(data(serverLog));
+    const store = makeStore();
+    store.setState({
+      projectId: "p1",
+      messages: [
+        msg("m1", "user", "a", "t1"),
+        msg("m2", "director", "A", "t1"),
+        msg("m3", "user", "b", "t2"),
+        msg("m4", "director", "B", "t2"),
+      ],
+    });
+    await store.getState().retry("m3");
+    expect(mock.post).toHaveBeenCalledWith("/chat/p1/m3/retry");
+    expect(mock.get).toHaveBeenCalledWith("/chat/p1");
+    // The list is REPLACED by the server log — no stale m3/m4 appended-to.
+    expect(store.getState().messages).toEqual(serverLog);
+    expect(store.getState().lastBranch).toBe("branch_abc");
+    expect(store.getState().sending).toBe(false);
+  });
+
+  it("sets error when retry fails and does not refetch", async () => {
+    mock.post.mockRejectedValueOnce(new Error("409"));
     const store = makeStore();
     store.setState({ projectId: "p1", messages: [msg("m1", "user", "a", "t1")] });
     await store.getState().retry("m1");
-    expect(mock.post).toHaveBeenCalledWith("/chat/p1/m1/retry");
-    expect(store.getState().messages.map((m) => m.message_id)).toEqual(["m1", "u2", "d2"]);
-    expect(store.getState().lastBranch).toBe("branch_abc");
+    expect(store.getState().error).toBe("409");
+    expect(mock.get).not.toHaveBeenCalled();
+    expect(store.getState().messages.map((m) => m.message_id)).toEqual(["m1"]);
   });
 });

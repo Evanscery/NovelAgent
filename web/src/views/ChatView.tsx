@@ -11,26 +11,18 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { marked } from "marked";
+import DOMPurify from "dompurify";
 import { useChatStore } from "@/stores/chatStore";
 import { useProjectStore } from "@/stores/projectStore";
 import type { ChatMessage } from "@/api/client";
 
 marked.setOptions({ breaks: true, gfm: true });
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 function renderMarkdown(content: string): string {
-  // marked output is sanitized at the markdown level (no raw html passthrough
-  // in default gfm). Escape any pre-existing html before parsing to be safe.
-  const parsed = marked.parse(escapeHtml(content));
-  return typeof parsed === "string" ? parsed : "";
+  // Parse markdown first (so code blocks etc. render normally), then
+  // sanitize the resulting html with DOMPurify before injection.
+  const parsed = marked.parse(content);
+  return DOMPurify.sanitize(typeof parsed === "string" ? parsed : "");
 }
 
 function MessageBubble({
@@ -80,7 +72,7 @@ function MessageBubble({
       </header>
       <div
         className="chat-msg__body markdown"
-        // marked output is escaped-then-parsed; safe per our escapeHtml wrap.
+        // marked output is DOMPurify-sanitized in renderMarkdown.
         dangerouslySetInnerHTML={{ __html: html }}
       />
     </article>

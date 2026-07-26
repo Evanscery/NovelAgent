@@ -17,6 +17,7 @@ import {
   type PutAgentConfigRequest,
   type PutProjectConfigRequest,
 } from "@/api/client";
+import { apiErrorMessage } from "@/api/errors";
 
 export interface ConfigStoreState {
   projectId: string | null;
@@ -53,7 +54,7 @@ export function createConfigStore(apiClient: ApiClient = defaultApi) {
         ]);
         set({ config, agents, loading: false });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = apiErrorMessage(e);
         set({ loading: false, error: msg });
       }
     },
@@ -70,7 +71,7 @@ export function createConfigStore(apiClient: ApiClient = defaultApi) {
         const config = await apiClient.putProjectConfig(pid, data);
         set({ config, saving: false });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = apiErrorMessage(e);
         set({ saving: false, error: msg });
       }
     },
@@ -84,7 +85,7 @@ export function createConfigStore(apiClient: ApiClient = defaultApi) {
         const agents = await apiClient.getAgents(pid);
         set({ agents, saving: false });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = apiErrorMessage(e);
         set({ saving: false, error: msg });
       }
     },

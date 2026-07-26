@@ -9,6 +9,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { marked } from "marked";
+import DOMPurify from "dompurify";
 import { useNovelStore } from "@/stores/novelStore";
 import { useProjectStore } from "@/stores/projectStore";
 import CodeMirrorEditor from "@/components/CodeMirrorEditor";
@@ -79,7 +80,9 @@ export default function NovelView(): ReactNode {
   const html = useMemo(() => {
     if (!active) return "";
     const parsed = marked.parse(active.content);
-    return typeof parsed === "string" ? parsed : "";
+    // Sanitize the rendered markdown before dangerouslySetInnerHTML —
+    // chapter content is model/user-generated and may embed raw html.
+    return DOMPurify.sanitize(typeof parsed === "string" ? parsed : "");
   }, [active]);
 
   return (

@@ -365,7 +365,14 @@ export default function ConfigView(): ReactNode {
             mode={mode}
             expertMode={expertMode}
             saving={saving}
-            onSave={(d) => void saveProjectConfig(d)}
+            onSave={(d) =>
+              void saveProjectConfig(d).then(() => {
+                // 保存成功后刷新项目列表，避免 Overview 的 mode 徽标 stale。
+                if (useConfigStore.getState().error === null) {
+                  void useProjectStore.getState().fetchProjects();
+                }
+              })
+            }
           />
           <ProviderReferencePanel />
           <section className="config-view__agents">

@@ -143,6 +143,7 @@ describe("Inspector context (via store subscriptions)", () => {
   it("workflow store exposes selected node detail for Inspector", async () => {
     const agents: AgentConfigResponse[] = [
       {
+        id: "agent_writer",
         name: "writer",
         task: "文本生成",
         input: "ctx",
@@ -155,7 +156,15 @@ describe("Inspector context (via store subscriptions)", () => {
         allow_recursive: true,
       },
     ];
-    mock.get.mockResolvedValueOnce(data(agents));
+    const canvas = {
+      nodes: [{ id: "writer", agent_name: "writer", description: "", params: {} }],
+      wires: [],
+    };
+    mock.get.mockImplementation((url: string) => {
+      if (url === "/workflow/p1/canvas") return Promise.resolve(data(canvas));
+      if (url === "/config/p1/agents") return Promise.resolve(data(agents));
+      return Promise.reject(new Error(`unexpected GET ${url}`));
+    });
     const apiClient = new ApiClient(mock as unknown as AxiosInstance);
     const wfStore = createWorkflowStore(apiClient);
     await wfStore.getState().load("p1");

@@ -15,6 +15,7 @@ import {
   type ApiClient,
   type ChatMessage,
 } from "@/api/client";
+import { apiErrorMessage } from "@/api/errors";
 
 export interface RpStoreState {
   projectId: string | null;
@@ -49,7 +50,7 @@ export function createRpStore(apiClient: ApiClient = defaultApi) {
         const res = await apiClient.sendChat(projectId, trimmed);
         set({ response: res.director_message, sending: false });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = apiErrorMessage(e);
         set({ sending: false, error: msg });
       }
     },

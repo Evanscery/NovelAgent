@@ -13,6 +13,7 @@ import {
   type ProjectMode,
   type ProjectSummary,
 } from "@/api/client";
+import { apiErrorMessage } from "@/api/errors";
 
 export interface ProjectStoreState {
   projects: ProjectSummary[];
@@ -44,7 +45,7 @@ export function createProjectStore(apiClient: ApiClient = defaultApi) {
             : (projects.find((p) => p.id === prevActive.id) ?? projects[0] ?? null);
         set({ projects, activeProject: nextActive, loading: false });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = apiErrorMessage(e);
         set({ loading: false, error: msg });
       }
     },
@@ -58,7 +59,7 @@ export function createProjectStore(apiClient: ApiClient = defaultApi) {
           projects.find((p) => p.display_name === displayName) ?? projects[0] ?? null;
         set({ projects, activeProject: created, loading: false });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = apiErrorMessage(e);
         set({ loading: false, error: msg });
       }
     },
@@ -82,7 +83,7 @@ export function createProjectStore(apiClient: ApiClient = defaultApi) {
             : prevActive;
         set({ projects, activeProject: nextActive, loading: false });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = apiErrorMessage(e);
         set({ loading: false, error: msg });
       }
     },

@@ -15,6 +15,7 @@ import {
   type ResourceHistoryEntry,
   type ResourceListEntry,
 } from "@/api/client";
+import { apiErrorMessage } from "@/api/errors";
 
 export interface ResourceStoreState {
   projectId: string | null;
@@ -52,7 +53,7 @@ export function createResourceStore(apiClient: ApiClient = defaultApi) {
         const res = await apiClient.listResources(projectId);
         set({ types: res.resources, loading: false });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = apiErrorMessage(e);
         set({ loading: false, error: msg });
       }
     },
@@ -66,7 +67,7 @@ export function createResourceStore(apiClient: ApiClient = defaultApi) {
         ]);
         set({ content, history: hist.commits, loading: false, dirty: false });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = apiErrorMessage(e);
         set({ loading: false, error: msg });
       }
     },
@@ -79,13 +80,19 @@ export function createResourceStore(apiClient: ApiClient = defaultApi) {
         set({ error: "变量类型只读，不允许保存" });
         return;
       }
+      // 前端拦截空内容：后端 PutResourceRequest.content 有 min_length=1，
+      // 空串会 422 — 提前提示并且不发请求。
+      if (content.length === 0) {
+        set({ error: "内容不能为空" });
+        return;
+      }
       set({ saving: true, error: null });
       try {
         const updated = await apiClient.putResource(pid, type, content, filename);
         const hist = await apiClient.resourceHistory(pid, type);
         set({ content: updated, history: hist.commits, saving: false, dirty: false });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = apiErrorMessage(e);
         set({ saving: false, error: msg });
       }
     },

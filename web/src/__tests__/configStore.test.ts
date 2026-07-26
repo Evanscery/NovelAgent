@@ -27,6 +27,7 @@ function data<T>(value: T): { data: T } {
 }
 
 const writerAgent = (): AgentConfigResponse => ({
+  id: "agent_writer",
   name: "writer",
   task: "文本生成",
   input: "ctx",

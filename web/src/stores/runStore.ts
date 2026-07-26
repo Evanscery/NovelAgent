@@ -15,6 +15,7 @@ import {
   type RoundStatusResponse,
   type RunWorkflowRequest,
 } from "@/api/client";
+import { apiErrorMessage } from "@/api/errors";
 
 export interface RunStoreState {
   projectId: string | null;
@@ -46,7 +47,7 @@ export function createRunStore(apiClient: ApiClient = defaultApi) {
         const round = await apiClient.runWorkflow(projectId, body);
         set({ round, starting: false });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = apiErrorMessage(e);
         set({ starting: false, error: msg });
       }
     },
@@ -59,7 +60,7 @@ export function createRunStore(apiClient: ApiClient = defaultApi) {
         const round = await apiClient.getRound(pid, rid);
         set({ round });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = apiErrorMessage(e);
         set({ error: msg });
       }
     },
@@ -70,7 +71,7 @@ export function createRunStore(apiClient: ApiClient = defaultApi) {
         const round = await apiClient.stopWorkflow(projectId);
         set({ round, stopping: false });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = apiErrorMessage(e);
         set({ stopping: false, error: msg });
       }
     },

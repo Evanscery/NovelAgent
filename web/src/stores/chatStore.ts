@@ -4,8 +4,10 @@
  * Holds the chat message log + actions: send, delete (rolls back), retry.
  * Wraps /api/chat. Deleting a message syncs to backend
  * rollback — the DELETE endpoint returns the surviving messages and we
- * replace the local list with them. Retry re-sends from a message and
- * returns the new exchange.
+ * replace the local list with them. Retry rolls the backend back to
+ * before the target message and appends a fresh exchange, so the local
+ * list is refetched wholesale (listChat) instead of appended — mirroring
+ * remove()'s replace semantics.
  */
 
 import { create } from "zustand";
@@ -14,6 +16,7 @@ import {
   type ApiClient,
   type ChatMessage,
 } from "@/api/client";
+import { apiErrorMessage } from "@/api/errors";
 
 export interface ChatStoreState {
   projectId: string | null;
@@ -45,8 +48,7 @@ export function createChatStore(apiClient: ApiClient = defaultApi) {
         const messages = await apiClient.listChat(projectId);
         set({ messages, loading: false });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        set({ loading: false, error: msg });
+        set({ loading: false, error: apiErrorMessage(e) });
       }
     },
 
@@ -65,8 +67,7 @@ export function createChatStore(apiClient: ApiClient = defaultApi) {
           sending: false,
         }));
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        set({ sending: false, error: msg });
+        set({ sending: false, error: apiErrorMessage(e) });
       }
     },
 
@@ -79,8 +80,7 @@ export function createChatStore(apiClient: ApiClient = defaultApi) {
         const surviving = await apiClient.deleteChat(pid, messageId);
         set({ messages: surviving, sending: false });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        set({ sending: false, error: msg });
+        set({ sending: false, error: apiErrorMessage(e) });
       }
     },
 
@@ -90,18 +90,18 @@ export function createChatStore(apiClient: ApiClient = defaultApi) {
       set({ sending: true, error: null });
       try {
         const res = await apiClient.retryChat(pid, messageId);
-        set((s) => ({
-          messages: [
-            ...s.messages,
-            res.user_message,
-            ...(res.director_message ? [res.director_message] : []),
-          ],
+        // The backend rolled back to before the target message and then
+        // appended the new exchange — the old local list is stale, so
+        // refetch the server's message log wholesale (same replace
+        // semantics as remove()).
+        const messages = await apiClient.listChat(pid);
+        set({
+          messages,
           lastBranch: res.branch,
           sending: false,
-        }));
+        });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        set({ sending: false, error: msg });
+        set({ sending: false, error: apiErrorMessage(e) });
       }
     },
 

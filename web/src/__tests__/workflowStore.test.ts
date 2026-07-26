@@ -1,7 +1,9 @@
 /**
  * Tests for WorkflowCanvasView + workflowStore (todo 27).
- * Mocks the API client + react-flow DOM rendering; asserts canvas renders
- * nodes, export JSON round-trips, agent edit saves to the right endpoint.
+ * Mocks the API client; asserts load pulls the REAL canvas graph from
+ * GET /api/workflow/{id}/canvas (plus the agent registry for the side
+ * panel), saveCanvas PUTs the current graph, export JSON round-trips,
+ * and agent edit saves to the right endpoint.
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -32,6 +34,7 @@ function data<T>(value: T): { data: T } {
 }
 
 const sampleAgent = (name: string): AgentConfigResponse => ({
+  id: `agent_${name}`,
   name,
   task: `task-${name}`,
   input: "in",
@@ -42,6 +45,14 @@ const sampleAgent = (name: string): AgentConfigResponse => ({
   head: null,
   tail: null,
   allow_recursive: true,
+});
+
+const sampleCanvas = (): CanvasGraphData => ({
+  nodes: [
+    { id: "n_recall", agent_name: "recaller", description: "回忆", params: {} },
+    { id: "n_write", agent_name: "writer", description: "写作", params: { chapter: 1 } },
+  ],
+  wires: [{ from_node: "n_recall", to_node: "n_write", repeat_count: 2 }],
 });
 
 let mock: MockAxiosInstance;
@@ -56,32 +67,85 @@ function makeStore() {
   return createWorkflowStore(apiClient);
 }
 
+/** Route GETs by url so Promise.all ordering does not matter. */
+function mockLoad(projectId: string, canvas: CanvasGraphData, agents: AgentConfigResponse[]) {
+  mock.get.mockImplementation((url: string) => {
+    if (url === `/workflow/${projectId}/canvas`) return Promise.resolve(data(canvas));
+    if (url === `/config/${projectId}/agents`) return Promise.resolve(data(agents));
+    return Promise.reject(new Error(`unexpected GET ${url}`));
+  });
+}
+
 describe("workflowStore.load", () => {
-  it("loads agents and builds a linear canvas from the registry", async () => {
-    const agents = [sampleAgent("recaller"), sampleAgent("writer"), sampleAgent("critic")];
-    mock.get.mockResolvedValueOnce(data(agents));
+  it("loads the real canvas from GET /workflow/{id}/canvas + the agent registry", async () => {
+    const canvas = sampleCanvas();
+    const agents = [sampleAgent("recaller"), sampleAgent("writer")];
+    mockLoad("proj_1", canvas, agents);
     const store = makeStore();
     await store.getState().load("proj_1");
+    expect(mock.get).toHaveBeenCalledWith("/workflow/proj_1/canvas");
     expect(mock.get).toHaveBeenCalledWith("/config/proj_1/agents");
-    const { canvas } = store.getState();
-    expect(canvas.nodes).toHaveLength(3);
-    expect(canvas.nodes.map((n) => n.id)).toEqual(["recaller", "writer", "critic"]);
-    expect(canvas.wires).toHaveLength(2);
-    expect(canvas.wires[0]).toEqual({
-      from_node: "recaller",
-      to_node: "writer",
-      repeat_count: 1,
-    });
+    expect(store.getState().canvas).toEqual(canvas);
+    expect(store.getState().agents).toEqual(agents);
     expect(store.getState().loading).toBe(false);
     expect(store.getState().dirty).toBe(false);
   });
 
+  it("does NOT synthesize a linear chain from the agent list", async () => {
+    // Empty workflow → empty canvas, even with agents registered.
+    mockLoad("proj_1", { nodes: [], wires: [] }, [sampleAgent("a"), sampleAgent("b")]);
+    const store = makeStore();
+    await store.getState().load("proj_1");
+    expect(store.getState().canvas.nodes).toEqual([]);
+    expect(store.getState().canvas.wires).toEqual([]);
+  });
+
   it("sets error on failure", async () => {
-    mock.get.mockRejectedValueOnce(new Error("boom"));
+    mock.get.mockRejectedValue(new Error("boom"));
     const store = makeStore();
     await store.getState().load("proj_1");
     expect(store.getState().error).toBe("boom");
     expect(store.getState().loading).toBe(false);
+  });
+});
+
+describe("workflowStore.saveCanvas", () => {
+  it("PUTs the current graph to /workflow/{id}/canvas and clears dirty", async () => {
+    const canvas = sampleCanvas();
+    mockLoad("p1", canvas, []);
+    const store = makeStore();
+    await store.getState().load("p1");
+    store.getState().addWire({ from_node: "n_write", to_node: "n_recall", repeat_count: 1 });
+    expect(store.getState().dirty).toBe(true);
+    const expected = store.getState().canvas;
+    mock.put.mockResolvedValueOnce(data(expected));
+    await store.getState().saveCanvas();
+    expect(mock.put).toHaveBeenCalledWith("/workflow/p1/canvas", expected);
+    expect(store.getState().canvas).toEqual(expected);
+    expect(store.getState().dirty).toBe(false);
+    expect(store.getState().saving).toBe(false);
+  });
+
+  it("surfaces the backend detail on 422", async () => {
+    mockLoad("p1", sampleCanvas(), []);
+    const store = makeStore();
+    await store.getState().load("p1");
+    store.getState().addWire({ from_node: "n_write", to_node: "n_recall", repeat_count: 1 });
+    const axiosErr = Object.assign(new Error("Request failed with status code 422"), {
+      isAxiosError: true,
+      response: { data: { detail: "Invalid canvas: cycle detected" } },
+    });
+    mock.put.mockRejectedValueOnce(axiosErr);
+    await store.getState().saveCanvas();
+    expect(store.getState().error).toBe("Invalid canvas: cycle detected");
+    expect(store.getState().saving).toBe(false);
+    expect(store.getState().dirty).toBe(true);
+  });
+
+  it("is a no-op without a project id", async () => {
+    const store = makeStore();
+    await store.getState().saveCanvas();
+    expect(mock.put).not.toHaveBeenCalled();
   });
 });
 
@@ -149,6 +213,20 @@ describe("workflowStore.exportJson / importJson round-trip", () => {
     expect(reparsed).toEqual(original);
   });
 
+  it("an imported graph can then be saved via PUT canvas", async () => {
+    mockLoad("p1", { nodes: [], wires: [] }, []);
+    const store = makeStore();
+    await store.getState().load("p1");
+    const imported: CanvasGraphData = {
+      nodes: [{ id: "x", agent_name: "writer", description: "", params: {} }],
+      wires: [],
+    };
+    store.getState().importJson(JSON.stringify(imported));
+    mock.put.mockResolvedValueOnce(data(imported));
+    await store.getState().saveCanvas();
+    expect(mock.put).toHaveBeenCalledWith("/workflow/p1/canvas", imported);
+  });
+
   it("importJson rejects invalid shape", () => {
     const store = makeStore();
     expect(() => store.getState().importJson('{"nodes": []}')).toThrow();
@@ -156,19 +234,17 @@ describe("workflowStore.exportJson / importJson round-trip", () => {
 });
 
 describe("workflowStore.selectNode", () => {
-  it("selects an existing node + finds its agent", async () => {
-    const agents = [sampleAgent("writer")];
-    mock.get.mockResolvedValueOnce(data(agents));
+  it("selects an existing node + finds its agent by agent_name", async () => {
+    mockLoad("p", sampleCanvas(), [sampleAgent("writer")]);
     const store = makeStore();
     await store.getState().load("p");
-    store.getState().selectNode("writer");
-    expect(store.getState().selected?.id).toBe("writer");
+    store.getState().selectNode("n_write");
+    expect(store.getState().selected?.id).toBe("n_write");
     expect(store.getState().selected?.agent?.name).toBe("writer");
   });
 
   it("selectNode with unknown id is a no-op", async () => {
-    const agents = [sampleAgent("writer")];
-    mock.get.mockResolvedValueOnce(data(agents));
+    mockLoad("p", sampleCanvas(), [sampleAgent("writer")]);
     const store = makeStore();
     await store.getState().load("p");
     store.getState().selectNode("nope");
@@ -178,14 +254,16 @@ describe("workflowStore.selectNode", () => {
 
 describe("workflowStore.saveAgent", () => {
   it("PUTs the agent and refreshes the registry", async () => {
-    const agents = [sampleAgent("writer")];
-    mock.get.mockResolvedValueOnce(data(agents)); // initial load
+    mockLoad("p1", sampleCanvas(), [sampleAgent("writer")]);
+    const store = makeStore();
+    await store.getState().load("p1");
     mock.put.mockResolvedValueOnce(data(sampleAgent("writer")));
     const updated = [sampleAgent("writer")];
     updated[0].task = "new task";
-    mock.get.mockResolvedValueOnce(data(updated)); // after save
-    const store = makeStore();
-    await store.getState().load("p1");
+    mock.get.mockImplementation((url: string) => {
+      if (url === "/config/p1/agents") return Promise.resolve(data(updated));
+      return Promise.reject(new Error(`unexpected GET ${url}`));
+    });
     await store.getState().saveAgent("writer", {
       ...sampleAgent("writer"),
       task: "new task",

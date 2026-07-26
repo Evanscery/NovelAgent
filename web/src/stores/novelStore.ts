@@ -14,6 +14,7 @@ import {
   type NovelChapterResponse,
   type NovelChapterSummary,
 } from "@/api/client";
+import { apiErrorMessage } from "@/api/errors";
 
 export interface NovelStoreState {
   projectId: string | null;
@@ -44,7 +45,7 @@ export function createNovelStore(apiClient: ApiClient = defaultApi) {
         const res = await apiClient.listChapters(projectId);
         set({ chapters: res.chapters, loading: false });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = apiErrorMessage(e);
         set({ loading: false, error: msg });
       }
     },
@@ -55,7 +56,7 @@ export function createNovelStore(apiClient: ApiClient = defaultApi) {
         const chapter = await apiClient.readChapter(projectId, filename);
         set({ active: chapter, loading: false });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = apiErrorMessage(e);
         set({ loading: false, error: msg });
       }
     },

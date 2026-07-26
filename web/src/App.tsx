@@ -41,11 +41,32 @@ function pathToView(pathname: string): ViewId {
   return "overview";
 }
 
+/** Tabs that are mode-defaults: switching the active project re-targets
+ * these by project mode (novel → 小说阅读, rp → RP). All 8 tabs stay
+ * manually reachable via the NavRail. */
+const MODE_DEFAULT_TABS: ReadonlySet<ViewId> = new Set(["novel", "rp"]);
+
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const activeView = pathToView(location.pathname);
   const fetchProjects = useProjectStore((s) => s.fetchProjects);
+  const activeProject = useProjectStore((s) => s.activeProject);
+  const prevProjectIdRef = useRef<string | null>(null);
+
+  // On active-project switch: if the current tab is one of the mode-default
+  // tabs, follow the new project's mode (novel → /novel, rp → /rp).
+  useEffect(() => {
+    const prev = prevProjectIdRef.current;
+    prevProjectIdRef.current = activeProject?.id ?? null;
+    if (!activeProject || prev === activeProject.id) return;
+    if (!MODE_DEFAULT_TABS.has(activeView)) return;
+    const target: ViewId = activeProject.mode === "rp" ? "rp" : "novel";
+    if (activeView !== target) {
+      void navigate(VIEW_TO_PATH[target]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to project switches
+  }, [activeProject]);
 
   const [railCollapsed, setRailCollapsed] = useState<boolean>(() => {
     return localStorage.getItem("navrail.collapsed") === "1";

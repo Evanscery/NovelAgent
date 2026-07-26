@@ -102,6 +102,7 @@ describe("Inspector rendering", () => {
 
   it("renders the workflow context with a selected node", () => {
     const agent: AgentConfigResponse = {
+      id: "agent_writer",
       name: "writer",
       task: "文本生成",
       input: "ctx",

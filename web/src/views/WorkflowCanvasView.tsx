@@ -24,9 +24,13 @@ import {
   Controls,
   ReactFlow,
   addEdge,
+  applyEdgeChanges,
+  applyNodeChanges,
   type Connection,
   type Edge,
+  type EdgeChange,
   type Node,
+  type NodeChange,
   type NodeMouseHandler,
   type OnConnect,
 } from "@xyflow/react";
@@ -34,6 +38,7 @@ import "@xyflow/react/dist/style.css";
 import { useEffect } from "react";
 import { useWorkflowStore, type CanvasWireData } from "@/stores/workflowStore";
 import { useProjectStore } from "@/stores/projectStore";
+import { useConfigStore } from "@/stores/configStore";
 import type { AgentConfigResponse, PutAgentConfigRequest } from "@/api/client";
 import AgentNode from "@/components/AgentNode";
 
@@ -74,7 +79,10 @@ function AgentEditForm({
   saving: boolean;
 }): ReactNode {
   const [form, setForm] = useState<PutAgentConfigRequest>({ ...agent });
-  const [expert, setExpert] = useState(false);
+  // Expert mode is shared UI state owned by configStore (same toggle as
+  // the config page) — no view-local duplicate.
+  const expert = useConfigStore((s) => s.expertMode);
+  const setExpert = useConfigStore((s) => s.setExpertMode);
 
   const set = <K extends keyof PutAgentConfigRequest>(
     key: K,
@@ -226,6 +234,8 @@ export default function WorkflowCanvasView(): ReactNode {
     selectNode,
     clearSelection,
     addWire,
+    removeWire,
+    saveCanvas,
     saveAgent,
   } = useWorkflowStore();
 
@@ -256,6 +266,27 @@ export default function WorkflowCanvasView(): ReactNode {
       setEdges((eds) => addEdge(conn, eds));
     },
     [addWire],
+  );
+
+  // Apply react-flow's internal changes (selection, drag, remove) so edges
+  // are selectable and deletable with the Delete/Backspace key.
+  const onNodesChange = useCallback(
+    (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),
+    [],
+  );
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange[]) => setEdges((eds) => applyEdgeChanges(changes, eds)),
+    [],
+  );
+
+  // Selected edge(s) deleted via keyboard → sync the store canvas.
+  const onEdgesDelete = useCallback(
+    (deleted: Edge[]) => {
+      for (const e of deleted) {
+        removeWire(e.source, e.target);
+      }
+    },
+    [removeWire],
   );
 
   const onNodeClick: NodeMouseHandler = useCallback(
@@ -302,6 +333,15 @@ export default function WorkflowCanvasView(): ReactNode {
           <button type="button" className="btn" onClick={handleLoad} disabled={loading || !projectId}>
             {loading ? "加载中…" : "重新加载"}
           </button>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => void saveCanvas()}
+            disabled={saving || !projectId}
+            title="保存画布（PUT /api/workflow/{id}/canvas）"
+          >
+            {saving ? "保存中…" : "保存"}
+          </button>
           <button type="button" className="btn" onClick={handleExport} disabled={canvas.nodes.length === 0}>
             导出 JSON
           </button>
@@ -319,7 +359,7 @@ export default function WorkflowCanvasView(): ReactNode {
       </header>
 
       {error !== null && <p className="overview__error">出错了：{error}</p>}
-      {dirty && <p className="overview__loading">有未保存的更改（保存各 Agent 配置即生效）。</p>}
+      {dirty && <p className="overview__loading">有未保存的画布更改（点击「保存」写回后端）。</p>}
 
       <div className="workflow-view__body">
         <div className="workflow-view__canvas">
@@ -328,6 +368,10 @@ export default function WorkflowCanvasView(): ReactNode {
             edges={edges}
             nodeTypes={NODE_TYPES}
             onConnect={onConnect}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onEdgesDelete={onEdgesDelete}
+            deleteKeyCode={["Delete", "Backspace"]}
             onNodeClick={onNodeClick}
             onPaneClick={clearSelection}
             fitView
@@ -348,7 +392,10 @@ export default function WorkflowCanvasView(): ReactNode {
             <AgentEditForm
               agent={selected.agent}
               saving={saving}
-              onSave={(data) => void saveAgent(selected.agent!.name, data)}
+              onSave={(data) => {
+                // 保存同时持久化 agent 属性与当前画布。
+                void saveAgent(selected.agent!.name, data).then(() => saveCanvas());
+              }}
             />
           )}
         </aside>
