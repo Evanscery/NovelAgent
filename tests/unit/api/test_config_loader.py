@@ -91,10 +91,10 @@ class TestLoadGlobal:
         bare mapping — the loader handles both like models.yaml / runtime.yaml."""
         root = _make_repo(tmp_path)
         _write_global_configs(
-            root, agents={"agents": {"default_tools": ["alpha"]}}
+            root, agents={"agents": {"default_tools": ["read"]}}
         )
         cfg = ConfigLoader(root).load_global()
-        assert cfg.agents.default_tools == ["alpha"]
+        assert cfg.agents.default_tools == ["read"]
 
     def test_run_override_wins(self, tmp_path: Path) -> None:
         root = _make_repo(tmp_path)
@@ -190,3 +190,17 @@ class TestLoadProject:
         cfg = ConfigLoader(root).load_project("proj_dddd4444")
         assert isinstance(cfg, ProjectConfig)
         assert cfg.agents.default_tools == ["read"]  # project override wins
+
+
+class TestDefaultToolsValidation:
+    """default_tools names are validated against BUILTIN_TOOL_SCHEMAS."""
+
+    def test_known_tool_names_accepted(self) -> None:
+        cfg = AgentsConfig(default_tools=["read", "write", "dice_roll", "call_agent"])
+        assert "dice_roll" in cfg.default_tools
+
+    def test_unknown_tool_name_rejected(self) -> None:
+        import pytest
+
+        with pytest.raises(ValueError, match="no_such_tool"):
+            AgentsConfig(default_tools=["read", "no_such_tool"])

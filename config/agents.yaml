@@ -1,0 +1,22 @@
+# Global agent defaults — the tools every agent inherits when neither its
+# builtin / per-project yaml nor an explicit ``tools=...`` constructor arg
+# specifies a tools list.
+#
+# Loaded by ``app.config_loader.ConfigLoader`` into
+# :class:`AgentsConfig.default_tools`. Edit this file then restart the
+# server (or trigger a config reload) to change the default at runtime.
+#
+# Per-project override: add an ``agents.default_tools`` key in
+# ``workspaces/<id>/config.yaml``; the four-tier merge
+# (global < profile < project < run-override) picks up per-project values
+# automatically.
+default_tools:
+  - read
+  - write
+  - list_files
+  - glob_files
+  - grep_lines
+  - read_lines# NOTE: valid tool names are the keys of BUILTIN_TOOL_SCHEMAS
+# (app/agents/tools.py). dice_roll and the director tools
+# (call_agent / await / finalize) are deliberately NOT defaults —
+# an agent opts into them via its own `tools:` list.

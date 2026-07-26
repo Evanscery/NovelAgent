@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ── Pydantic models ──────────────────────────────────────────────────────
 
@@ -65,6 +65,27 @@ class AgentsConfig(BaseModel):
     """
 
     default_tools: list[str] = Field(default_factory=list)
+
+    @field_validator("default_tools")
+    @classmethod
+    def _validate_default_tools(cls, value: list[str]) -> list[str]:
+        """Every default tool name must be a known builtin tool schema.
+
+        Validated against :data:`app.agents.tools.BUILTIN_TOOL_SCHEMAS`
+        (the single source of truth for what tools exist). Note that the
+        schema set is wider than the sensible default set: ``dice_roll``
+        and the director tools (``call_agent`` / ``await`` / ``finalize``)
+        are valid names an individual agent opts into via its own
+        ``tools:`` list — they are just not shipped in ``default_tools``.
+        """
+        from app.agents.tools import BUILTIN_TOOL_SCHEMAS
+
+        unknown = [name for name in value if name not in BUILTIN_TOOL_SCHEMAS]
+        if unknown:
+            valid = ", ".join(sorted(BUILTIN_TOOL_SCHEMAS))
+            msg = f"unknown default_tools {unknown!r}; valid tools: {valid}"
+            raise ValueError(msg)
+        return value
 
 
 class ServerConfig(BaseModel):
