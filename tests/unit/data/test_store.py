@@ -251,3 +251,59 @@ class TestReadLines:
         assert result == "a\nb\nc"
 
 
+
+
+# -- filename path-traversal guard -------------------------------------
+
+
+class TestFilenameTraversalGuard:
+    """read/write/grep_lines/read_lines reject filenames escaping the resource dir."""
+
+    TRAVERSAL_NAMES = [
+        "../escape.md",
+        "sub/../../escape.md",
+        "/etc/passwd",
+        "\windows\system32\drivers\etc\hosts",
+        "C:/Windows/win.ini",
+        "..",
+        "   ",
+    ]
+
+    def test_write_rejects_traversal(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        resource = store.create_resource("notes", "n1")
+        for name in self.TRAVERSAL_NAMES:
+            with pytest.raises(ValueError):
+                store.write(resource, name, "x")
+
+    def test_read_rejects_traversal(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        resource = store.create_resource("notes", "n1")
+        for name in self.TRAVERSAL_NAMES:
+            with pytest.raises(ValueError):
+                store.read(resource, name)
+
+    def test_grep_rejects_traversal(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        resource = store.create_resource("notes", "n1")
+        with pytest.raises(ValueError):
+            store.grep_lines(resource, "x", filename="../../config.yaml")
+
+    def test_read_lines_rejects_traversal(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        resource = store.create_resource("notes", "n1")
+        with pytest.raises(ValueError):
+            store.read_lines(resource, "../secret.md", 1, 2)
+
+    def test_traversal_leaves_no_file_outside(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        resource = store.create_resource("notes", "n1")
+        with pytest.raises(ValueError):
+            store.write(resource, "../escape.md", "leaked")
+        assert not (resource.path.parent / "escape.md").exists()
+
+    def test_nested_relative_path_still_allowed(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        resource = store.create_resource("worldbook", "w1")
+        store.write(resource, "chapters/magic.md", "fireball")
+        assert store.read(resource, "chapters/magic.md") == "fireball"

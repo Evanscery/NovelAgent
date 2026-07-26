@@ -4,7 +4,7 @@ export const canvasNodeDataSchema = z.object({
   id: z.string(),
   agent_name: z.string(),
   description: z.string(),
-  params: z.record(z.unknown()),
+  params: z.record(z.string(), z.unknown()),
 });
 
 export const canvasWireDataSchema = z.object({

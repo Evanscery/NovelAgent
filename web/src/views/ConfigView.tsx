@@ -62,8 +62,8 @@ function ProjectConfigSection({
     };
     if (expertMode) {
       try {
-        if (modelsYaml.trim()) data.models = z.record(z.unknown()).parse(JSON.parse(modelsYaml));
-        if (runtimeYaml.trim()) data.runtime = z.record(z.unknown()).parse(JSON.parse(runtimeYaml));
+        if (modelsYaml.trim()) data.models = z.record(z.string(), z.unknown()).parse(JSON.parse(modelsYaml));
+        if (runtimeYaml.trim()) data.runtime = z.record(z.string(), z.unknown()).parse(JSON.parse(runtimeYaml));
       } catch {
         window.alert("models/runtime 必须是合法 JSON 对象");
         return;

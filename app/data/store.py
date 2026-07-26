@@ -19,6 +19,33 @@ from .resource_types import get_resource_type
 _SKIP_FILES: frozenset[str] = frozenset({"properties.md", "manifest.json"})
 
 
+def resolve_content_path(res_dir: Path, filename: str) -> Path:
+    """Resolve *filename* inside *res_dir*, rejecting any path escape.
+
+    Nested relative paths (subdirectories) are allowed; absolute paths,
+    drive-qualified paths, and ``..`` traversal are rejected so that a
+    tool-driven agent can never reach outside its resource directory.
+    """
+    candidate = Path(filename)
+    if (
+        not filename.strip()
+        or candidate.is_absolute()
+        or bool(candidate.drive)
+        or filename.startswith(("/", "\\"))
+        or ".." in candidate.parts
+    ):
+        raise ValueError(
+            f"invalid filename {filename!r}: must be a relative path "
+            "inside the resource directory"
+        )
+    resolved = (res_dir / candidate).resolve()
+    if not resolved.is_relative_to(res_dir.resolve()):
+        raise ValueError(
+            f"invalid filename {filename!r}: escapes the resource directory"
+        )
+    return resolved
+
+
 class ResourceStore:
     """File-based CRUD and access layer for project resources.
 
@@ -85,7 +112,7 @@ class ResourceStore:
         """
         res_dir = resource.path
         if filename is not None:
-            return (res_dir / filename).read_text(encoding="utf-8")
+            return resolve_content_path(res_dir, filename).read_text(encoding="utf-8")
 
         # Concatenate all content files
         parts: list[str] = []
@@ -99,7 +126,7 @@ class ResourceStore:
 
     def write(self, resource: Resource, filename: str, content: str) -> None:
         """Write a file into the resource directory."""
-        file_path = resource.path / filename
+        file_path = resolve_content_path(resource.path, filename)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
 
@@ -151,7 +178,7 @@ class ResourceStore:
         hits: list[tuple[str, int, str]] = []
 
         if filename is not None:
-            targets = [res_dir / filename]
+            targets = [resolve_content_path(res_dir, filename)]
         else:
             targets = [
                 child
@@ -186,7 +213,7 @@ class ResourceStore:
         Returns:
             The text of lines *start* through *end*, joined with ``\n``.
         """
-        file_path = resource.path / filename
+        file_path = resolve_content_path(resource.path, filename)
         lines = file_path.read_text(encoding="utf-8").split("\n")
         # 1-based to 0-based: start-1 .. end (slice end is exclusive)
         clamped_start = max(0, start - 1)
