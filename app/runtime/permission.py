@@ -44,16 +44,6 @@ class PermissionDenied(Exception):
         )
 
 
-def enforce(permission: Permission, action: str, resource_type: str) -> bool:
-    """Pure permission check — return ``True`` if allowed, ``False`` if denied.
-
-    The caller decides whether to raise :class:`PermissionDenied` on a
-    ``False`` return. :class:`ScopedTools` does so; other callers may simply
-    branch on the boolean.
-    """
-    return permission.allowed(action, resource_type)
-
-
 class ScopedTools:
     """Wraps a :class:`ResourceStore` with a :class:`Permission`, enforcing
     scope on every tool call.

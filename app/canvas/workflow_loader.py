@@ -1,7 +1,10 @@
-"""Workflow loader: load_workflow + coercion helpers.
+"""Workflow file loader (user layer): load_workflow / load_default_workflow.
 
 Loads a :class:`~app.agents.tree_model.WorkflowTree` from a yaml or json
-file, accepting either tree-format or canvas-format input.
+file, accepting either tree-format or canvas-format input. Lives in the
+canvas (user) layer because canvas-format acceptance and the default
+canvas are user-layer concerns; the agent layer only consumes the
+compiled tree.
 """
 
 from __future__ import annotations
@@ -11,9 +14,9 @@ from pathlib import Path
 
 import yaml
 
-from app.agents.canvas_parser import parse_canvas_to_tree
-from app.agents.tree_model import WorkflowTree
+from app.agents.tree_model import WorkflowTree, _coerce_int, _coerce_params_dict
 from app.canvas.canvas_model import CanvasGraph, CanvasNode, CanvasWire
+from app.canvas.compile import parse_canvas_to_tree
 
 
 def load_workflow(path: str | Path) -> WorkflowTree:
@@ -51,11 +54,11 @@ def load_workflow(path: str | Path) -> WorkflowTree:
 
 
 def load_default_workflow() -> WorkflowTree:
-    """Load the built-in default workflow shipped with the agent layer.
+    """Load the built-in default workflow canvas.
 
-    This is the agent layer's own resource (``app/agents/default_workflow.yaml``);
-    callers in other layers use this entry point instead of reaching into
-    the package directory with relative paths.
+    This is the canvas layer's own resource (``app/canvas/default_workflow.yaml``);
+    callers use this entry point instead of reaching into the package
+    directory with relative paths.
     """
     return load_workflow(Path(__file__).resolve().parent / "default_workflow.yaml")
 
@@ -96,39 +99,3 @@ def _canvas_from_dict(data: dict[str, object]) -> CanvasGraph:
             )
         )
     return CanvasGraph(nodes=nodes, wires=wires)
-
-
-def _coerce_params_dict(raw: object) -> dict[str, object]:
-    """Coerce a raw params value into ``dict[str, object]``.
-
-    The params dict is heterogeneous (user-supplied values can be str /
-    int / float / bool / None / nested dict), so ``object`` is the value
-    type. This helper validates the outer shape (must be a dict).
-    """
-    if not isinstance(raw, dict):
-        msg = f"_coerce_params_dict: expected dict, got {type(raw).__name__}"
-        raise TypeError(msg)
-    result: dict[str, object] = {}
-    for k, v in raw.items():
-        result[str(k)] = v
-    return result
-
-
-def _coerce_str_list(raw: object) -> list[str]:
-    """Coerce a raw list value into ``list[str]`` with isinstance narrowing."""
-    if not isinstance(raw, list):
-        msg = f"_coerce_str_list: expected list, got {type(raw).__name__}"
-        raise TypeError(msg)
-    return [str(x) for x in raw]
-
-
-def _coerce_int(raw: object) -> int:
-    """Coerce a raw value into ``int`` with isinstance narrowing."""
-    if isinstance(raw, bool):
-        return int(raw)
-    if isinstance(raw, int):
-        return raw
-    if isinstance(raw, float):
-        return int(raw)
-    msg = f"_coerce_int: expected int-like, got {type(raw).__name__}"
-    raise TypeError(msg)

@@ -102,8 +102,13 @@ class RunWorkflowRequest(BaseModel):
 
     context: str = Field(default="", description="Extra context injected into the director prompt")
     max_iterations: int | None = Field(default=None, gt=0, description="Override budget max_iterations")
-    maximal_recursive_calling_depth: int = Field(
-        default=1, ge=0, description="Max cur_depth - target_depth for recursive calls"
+    maximal_recursive_calling_depth: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Max cur_depth - target_depth for recursive calls; None uses "
+            "the config value (runtime.yaml workflow.maximal_recursive_calling_depth)"
+        ),
     )
 
 

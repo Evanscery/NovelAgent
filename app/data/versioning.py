@@ -75,15 +75,20 @@ class VersionManager:
         # Resolve the target commit SHA from turn_id
         sha = self._repo.resolve_turn(to_turn)
 
-        # Build a deterministic branch name
-        branch_name = f"rollback/turn-{to_turn}"
+        # Build the branch name; a repeat rollback to the same turn gets a
+        # fresh suffixed branch (rollback/turn-X-2, -3, ...). Reusing the
+        # existing branch would silently check out its CURRENT tip — which
+        # may have advanced past the target — cancelling the rollback;
+        # resetting it would destroy data (回滚不删除数据).
+        base_name = f"rollback/turn-{to_turn}"
+        branches = set(self._repo.list_branches())
+        branch_name = base_name
+        n = 2
+        while branch_name in branches:
+            branch_name = f"{base_name}-{n}"
+            n += 1
 
-        # Create a branch from the target commit (if it doesn't already exist)
-        branches = self._repo.list_branches()
-        if branch_name not in branches:
-            self._repo.create_branch(branch_name, from_turn=sha)
-
-        # Check out the new branch
+        self._repo.create_branch(branch_name, from_turn=sha)
         self._repo.checkout(branch_name)
         return branch_name
 

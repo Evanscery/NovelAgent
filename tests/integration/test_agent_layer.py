@@ -28,7 +28,7 @@ from typing import cast
 import pytest
 
 from app.agents.registry import build_default_registry
-from app.agents.workflow import load_workflow
+from app.canvas.workflow_loader import load_workflow
 from app.data.project_repo import ProjectRepo
 from app.data.store import ResourceStore
 from app.runtime.budget import BudgetTracker
@@ -57,7 +57,7 @@ from app.runtime.tool_dispatcher import ToolDispatcher, UnknownToolError
 DEFAULT_WORKFLOW_PATH = (
     Path(__file__).resolve().parents[2]
     / "app"
-    / "agents"
+    / "canvas"
     / "default_workflow.yaml"
 )
 

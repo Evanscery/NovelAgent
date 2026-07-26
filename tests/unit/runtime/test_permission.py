@@ -1,4 +1,4 @@
-"""Tests for app.runtime.permission — parse, enforce, ScopedTools delegation."""
+"""Tests for app.runtime.permission — parse, allowed, ScopedTools delegation."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from app.data.store import ResourceStore
 from app.runtime.permission import (
     PermissionDenied,
     ScopedTools,
-    enforce,
     inject_into_tools,
 )
 
@@ -79,40 +78,40 @@ class TestParsePermission:
             perm.rules = {}  # type: ignore[misc]
 
 
-# ── enforce (pure function) ───────────────────────────────────────────────────
+# ── Permission.allowed (pure check) ───────────────────────────────────────────────────
 
 
 class TestEnforcePure:
-    """enforce(permission, action, resource_type) -> bool — no side effects."""
+    """Permission.allowed(action, resource_type) -> bool — no side effects."""
 
     def test_allowed_returns_true(self) -> None:
         perm = parse_permission({"read": ["state"]})
-        assert enforce(perm, "read", "state") is True
+        assert perm.allowed("read", "state") is True
 
     def test_denied_returns_false(self) -> None:
         perm = parse_permission({"read": ["state"]})
-        assert enforce(perm, "read", "worldbook") is False
+        assert perm.allowed("read", "worldbook") is False
 
     def test_missing_action_returns_false(self) -> None:
         perm = parse_permission({"read": ["state"]})
-        assert enforce(perm, "write", "state") is False
+        assert perm.allowed("write", "state") is False
 
     def test_empty_permission_denies_everything(self) -> None:
         perm = parse_permission({})
-        assert enforce(perm, "read", "state") is False
-        assert enforce(perm, "write", "state") is False
+        assert perm.allowed("read", "state") is False
+        assert perm.allowed("write", "state") is False
 
     def test_write_does_not_imply_read(self) -> None:
         """Per guide:77-78 'read' and 'write' are independent vectors."""
         perm = parse_permission({"write": ["short_goal"]})
-        assert enforce(perm, "write", "short_goal") is True
-        assert enforce(perm, "read", "short_goal") is False
+        assert perm.allowed("write", "short_goal") is True
+        assert perm.allowed("read", "short_goal") is False
 
     def test_does_not_mutate_permission(self) -> None:
         perm = parse_permission({"read": ["state"]})
         before = dict(perm.rules)
-        enforce(perm, "read", "worldbook")
-        enforce(perm, "write", "state")
+        perm.allowed("read", "worldbook")
+        perm.allowed("write", "state")
         assert perm.rules == before
 
 

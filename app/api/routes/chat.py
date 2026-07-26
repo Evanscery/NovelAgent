@@ -161,8 +161,15 @@ def _turn_id_before(project_path: Path, message: ChatMessage) -> str:
     reverts both the chat log entry and any resource mutations the
     director's reply round produced.
 
-    If the message is the first in the log, the preceding turn is the
-    project's initial Turn ``"0"`` (written by ``scaffold_project``).
+    The rollback granularity is one Turn (one commit holds the whole
+    user+director exchange), so the preceding turn is the last message
+    whose ``turn_id`` differs from the target's — NOT simply the previous
+    message, which for a director message is the same-turn user message
+    (rolling back to its own turn would be a no-op). Deleting either
+    message of an exchange therefore removes the whole exchange.
+
+    If no earlier turn exists, the preceding turn is the project's
+    initial Turn ``"0"`` (written by ``scaffold_project``).
     """
     messages = MessageStore(project_path).read_messages()
     target_idx: int | None = None
@@ -177,9 +184,11 @@ def _turn_id_before(project_path: Path, message: ChatMessage) -> str:
             f"known ids: {msg_ids}"
         )
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=err)
-    if target_idx == 0:
-        return _INITIAL_TURN_ID
-    return messages[target_idx - 1].turn_id
+    target_turn = messages[target_idx].turn_id
+    for prev in reversed(messages[:target_idx]):
+        if prev.turn_id != target_turn:
+            return prev.turn_id
+    return _INITIAL_TURN_ID
 
 
 def _rewrite_chat_log_after_rollback(

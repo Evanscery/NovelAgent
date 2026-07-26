@@ -282,7 +282,7 @@ class TestStopWorkflow:
 class TestDefaultWorkflowFallback:
     def test_fallback_path_exists_and_loads(self, tmp_path: Path) -> None:
         """A project without workflow.yaml falls back to the built-in
-        default workflow shipped at app/agents/default_workflow.yaml.
+        default workflow shipped at app/canvas/default_workflow.yaml.
 
         Regression: the fallback used to resolve to <repo>/app/app/agents/
         (an extra "app" segment), which does not exist.
@@ -338,7 +338,7 @@ class TestWorkflowExportImport:
         """Project A's custom-agent workflow exports self-contained; after
         import into project B, B's round session materializes the agent
         by id."""
-        from app.agents.workflow import load_workflow as load_tree
+        from app.canvas.workflow_loader import load_workflow as load_tree
         from app.runtime.session import create_round_session
 
         project_a = self._make_project(client, "Project A")

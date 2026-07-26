@@ -112,7 +112,13 @@ class ResourceStore:
         """
         res_dir = resource.path
         if filename is not None:
-            return resolve_content_path(res_dir, filename).read_text(encoding="utf-8")
+            file_path = resolve_content_path(res_dir, filename)
+            if not file_path.is_file():
+                raise FileNotFoundError(
+                    f"file {filename!r} not found in resource '{resource.type}'; "
+                    "use list_files to see available files"
+                )
+            return file_path.read_text(encoding="utf-8")
 
         # Concatenate all content files
         parts: list[str] = []
@@ -214,6 +220,11 @@ class ResourceStore:
             The text of lines *start* through *end*, joined with ``\n``.
         """
         file_path = resolve_content_path(resource.path, filename)
+        if not file_path.is_file():
+            raise FileNotFoundError(
+                f"file {filename!r} not found in resource '{resource.type}'; "
+                "use list_files to see available files"
+            )
         lines = file_path.read_text(encoding="utf-8").split("\n")
         # 1-based to 0-based: start-1 .. end (slice end is exclusive)
         clamped_start = max(0, start - 1)

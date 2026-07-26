@@ -35,6 +35,15 @@ class Budget:
     used_iterations: int = 0
 
 
+@dataclass(frozen=True)
+class BudgetRemaining:
+    """Per-counter remaining headroom (``max - used``, clamped at zero)."""
+
+    tokens: int
+    tool_calls: int
+    iterations: int
+
+
 class FinalizeSignal(Exception):
     """Raised to terminate the current Workflow round.
 
@@ -130,18 +139,12 @@ class BudgetTracker:
             or self._used_iterations >= self._max_iterations
         )
 
-    def remaining(self) -> Budget:
-        """Return a :class:`Budget` snapshot with ``used = max - used`` per counter.
-
-        Each remaining value is clamped at zero (never negative).
-        """
-        return Budget(
-            max_tokens=self._max_tokens,
-            max_tool_calls=self._max_tool_calls,
-            max_iterations=self._max_iterations,
-            used_tokens=max(self._max_tokens - self._used_tokens, 0),
-            used_tool_calls=max(self._max_tool_calls - self._used_tool_calls, 0),
-            used_iterations=max(self._max_iterations - self._used_iterations, 0),
+    def remaining(self) -> BudgetRemaining:
+        """Return the remaining headroom per counter (clamped at zero)."""
+        return BudgetRemaining(
+            tokens=max(self._max_tokens - self._used_tokens, 0),
+            tool_calls=max(self._max_tool_calls - self._used_tool_calls, 0),
+            iterations=max(self._max_iterations - self._used_iterations, 0),
         )
 
     def snapshot(self) -> Budget:

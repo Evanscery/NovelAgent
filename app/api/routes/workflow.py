@@ -22,13 +22,13 @@ The director agent is loaded from ``director.yaml`` inside the factory
 function; it is a plain :class:`~app.agents.agent.Agent`, not a dedicated
 orchestrator class.
 
-The design invariant is one Turn = one Round = one git Commit. This
-route only orchestrates round execution — it does NOT commit a Turn.
-Agent writes during the round go through the data layer as plain file
-writes; committing a Turn is left to the caller (the chat routes,
-``app/api/routes/chat.py``, are where chat Turns are committed). The
-transaction coordinator (``app.runtime.transaction.AtomicTurn``) exists
-but is not wired into this production path.
+The design invariant is one Turn = one Round = one git Commit. The
+Runtime layer enforces it: :func:`~app.runtime.session.run_session`
+wraps every workflow round in an ``AtomicTurn`` — all round writes
+(resources, chapter, summary) commit together as one ``Turn <id>:``
+commit, or the working tree is restored on failure. This route never
+touches git; chat Turns are committed by the chat routes together with
+the message log.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from fastapi import Path as FastPath
 
 from app.agents.registry import build_project_registry
-from app.agents.workflow import WorkflowTree, load_default_workflow, load_workflow
+from app.agents.workflow import WorkflowTree
 from app.api.routes._deps import ProjectIdPath, RootDep, resolve_project
 from app.api.schemas import (
     RoundResultSummary,
@@ -52,6 +52,7 @@ from app.api.schemas import (
     RoundStatusResponse,
     RunWorkflowRequest,
 )
+from app.canvas.workflow_loader import load_default_workflow, load_workflow
 from app.config_loader import ConfigLoader
 from app.runtime.runner_factory import build_runner
 from app.runtime.runners.base import AgentRunner

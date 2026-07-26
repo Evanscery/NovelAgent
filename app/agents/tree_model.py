@@ -271,15 +271,6 @@ class WorkflowTree:
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> WorkflowTree:
         """Reconstruct from :meth:`to_dict` output."""
-        # Lazy import to avoid a circular dependency: workflow_loader
-        # imports WorkflowTree at module load, and from_dict needs the
-        # coercion helpers defined in workflow_loader.
-        from app.agents.workflow_loader import (
-            _coerce_int,
-            _coerce_params_dict,
-            _coerce_str_list,
-        )
-
         raw_nodes_obj = data["all_nodes"]
         if not isinstance(raw_nodes_obj, dict):
             msg = f"WorkflowTree.from_dict: all_nodes must be a dict, got {type(raw_nodes_obj).__name__}"
@@ -344,3 +335,42 @@ class WorkflowTree:
             msg = f"WorkflowTree.load: expected dict with 'root_id', got {type(data).__name__}"
             raise ValueError(msg)
         return cls.from_dict(data)
+
+
+# -- coercion helpers (shared by from_dict and the canvas-layer loader) --
+
+
+def _coerce_params_dict(raw: object) -> dict[str, object]:
+    """Coerce a raw params value into ``dict[str, object]``.
+
+    The params dict is heterogeneous (user-supplied values can be str /
+    int / float / bool / None / nested dict), so ``object`` is the value
+    type. This helper validates the outer shape (must be a dict).
+    """
+    if not isinstance(raw, dict):
+        msg = f"_coerce_params_dict: expected dict, got {type(raw).__name__}"
+        raise TypeError(msg)
+    result: dict[str, object] = {}
+    for k, v in raw.items():
+        result[str(k)] = v
+    return result
+
+
+def _coerce_str_list(raw: object) -> list[str]:
+    """Coerce a raw list value into ``list[str]`` with isinstance narrowing."""
+    if not isinstance(raw, list):
+        msg = f"_coerce_str_list: expected list, got {type(raw).__name__}"
+        raise TypeError(msg)
+    return [str(x) for x in raw]
+
+
+def _coerce_int(raw: object) -> int:
+    """Coerce a raw value into ``int`` with isinstance narrowing."""
+    if isinstance(raw, bool):
+        return int(raw)
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, float):
+        return int(raw)
+    msg = f"_coerce_int: expected int-like, got {type(raw).__name__}"
+    raise TypeError(msg)

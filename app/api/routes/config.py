@@ -230,19 +230,24 @@ def put_project_agent(
     Writes a per-project override file at
     ``workspaces/<id>/agents/<name>.yaml``. Built-in definitions are
     never mutated (project-level override preferred).
-    """
-    if req.name != name:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Body name {req.name!r} does not match path name {name!r}",
-        )
 
+    A body ``name`` differing from the path name is a **rename** (design:
+    name 可随时更改 — the stable identity is ``id``, not the name). The
+    override file is written under the new name and the old override
+    file (if any) is removed. Renaming onto another agent's name is a
+    409 conflict.
+    """
     path = resolve_project(root, project_id)
     registry = _load_project_registry(path)
     if not registry.has_by_name(name):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent {name!r} is not registered in project {project_id!r}",
+        )
+    if req.name != name and registry.has_by_name(req.name):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot rename {name!r} to {req.name!r}: that name is taken",
         )
 
     # Validate the permission structure before writing.
@@ -272,8 +277,12 @@ def put_project_agent(
     )
 
     override_dir = path / "agents"
-    override_path = override_dir / f"{name}.yaml"
+    override_path = override_dir / f"{req.name}.yaml"
     _write_yaml(override_path, _dump_agent_to_dict(new_agent))
+    if req.name != name:
+        old_override = override_dir / f"{name}.yaml"
+        if old_override.exists():
+            old_override.unlink()
 
     return _agent_to_response(new_agent)
 

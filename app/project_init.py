@@ -33,7 +33,7 @@ __all__ = ["scaffold_project"]
 _RESOURCE_TYPE_NAMES: list[str] = list(RESOURCE_TYPE_REGISTRY.keys())
 
 # Path to the default workflow canvas shipped with the agent layer.
-_DEFAULT_WORKFLOW_SRC = Path(__file__).parent / "agents" / "default_workflow.yaml"
+_DEFAULT_WORKFLOW_SRC = Path(__file__).parent / "canvas" / "default_workflow.yaml"
 
 VALID_MODES = {"novel", "rp"}
 

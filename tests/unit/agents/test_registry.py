@@ -13,7 +13,8 @@ from app.agents.registry import (
     _load_agent_yaml,
     build_default_registry,
 )
-from app.agents.workflow import WorkflowTree, load_default_workflow
+from app.agents.workflow import WorkflowTree
+from app.canvas.workflow_loader import load_default_workflow
 
 # ── AgentRegistry basic ops ────────────────────────────────────────────
 

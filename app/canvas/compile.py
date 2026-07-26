@@ -1,8 +1,10 @@
-"""Parser: canvas -> tree (parse_canvas_to_tree + private helpers).
+"""Canvas compiler (user layer): canvas -> tree (parse_canvas_to_tree).
 
 Compiles a :class:`~app.canvas.canvas_model.CanvasGraph` into an expanded
 :class:`~app.agents.tree_model.WorkflowTree` via loop unrolling of feedback
-wires.
+wires. The compilation lives in the canvas (user) layer — 画布构建 is a
+user-layer responsibility; the agent layer consumes the compiled tree and
+never imports the canvas package.
 """
 
 from __future__ import annotations

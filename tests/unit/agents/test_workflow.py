@@ -19,15 +19,13 @@ from pathlib import Path
 import pytest
 
 from app.agents.workflow import (
-    CanvasGraph,
-    CanvasNode,
-    CanvasWire,
     TreeNode,
     WorkflowTree,
     generate_flow_sequence,
-    load_workflow,
-    parse_canvas_to_tree,
 )
+from app.canvas.canvas_model import CanvasGraph, CanvasNode, CanvasWire
+from app.canvas.compile import parse_canvas_to_tree
+from app.canvas.workflow_loader import load_workflow
 
 # ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -418,7 +416,7 @@ class TestDefaultWorkflowFile:
     """The shipped default_workflow.yaml parses to a valid tree."""
 
     def test_default_workflow_loads(self) -> None:
-        default_path = Path(__file__).resolve().parents[3] / "app" / "agents" / "default_workflow.yaml"
+        default_path = Path(__file__).resolve().parents[3] / "app" / "canvas" / "default_workflow.yaml"
         tree = load_workflow(default_path)
         # recaller, scout, writer, critic, maintainer = 5 nodes
         # (director is a system agent, NOT in the workflow tree)
@@ -427,7 +425,7 @@ class TestDefaultWorkflowFile:
             assert name in tree.all_nodes
 
     def test_default_workflow_root_depth_0(self) -> None:
-        default_path = Path(__file__).resolve().parents[3] / "app" / "agents" / "default_workflow.yaml"
+        default_path = Path(__file__).resolve().parents[3] / "app" / "canvas" / "default_workflow.yaml"
         tree = load_workflow(default_path)
         # Director is NOT in the tree; root is a workflow agent (recaller or scout).
         assert tree.root.agent_name in ("recaller", "scout")
@@ -435,7 +433,7 @@ class TestDefaultWorkflowFile:
 
     def test_default_workflow_writer_has_dependency_ids(self) -> None:
         """writer has two predecessors (recaller, scout) → one dependency_id."""
-        default_path = Path(__file__).resolve().parents[3] / "app" / "agents" / "default_workflow.yaml"
+        default_path = Path(__file__).resolve().parents[3] / "app" / "canvas" / "default_workflow.yaml"
         tree = load_workflow(default_path)
         writer = tree.all_nodes["writer"]
         assert writer.parent_id in ("recaller", "scout")

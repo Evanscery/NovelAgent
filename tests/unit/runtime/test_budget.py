@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.runtime.budget import Budget, BudgetTracker, FinalizeSignal
+from app.runtime.budget import BudgetRemaining, BudgetTracker, FinalizeSignal
 
 # ── token consumption ───────────────────────────────────────────────────────
 
@@ -21,7 +21,7 @@ def test_tracks_token_consumption_across_multiple_consume_calls():
     tracker.consume(tokens=300)
     tracker.consume(tokens=250)
     tracker.consume(tokens=150)
-    assert tracker.remaining().used_tokens == 300
+    assert tracker.remaining().tokens == 300
 
 
 def test_consume_beyond_max_tokens_raises_finalize():
@@ -104,13 +104,10 @@ def test_remaining_returns_correct_remaining_values():
     tracker = BudgetTracker(max_tokens=1000, max_tool_calls=50, max_iterations=20)
     tracker.consume(tokens=200, tool_calls=10, iterations=5)
     rem = tracker.remaining()
-    assert isinstance(rem, Budget)
-    assert rem.max_tokens == 1000
-    assert rem.max_tool_calls == 50
-    assert rem.max_iterations == 20
-    assert rem.used_tokens == 800
-    assert rem.used_tool_calls == 40
-    assert rem.used_iterations == 15
+    assert isinstance(rem, BudgetRemaining)
+    assert rem.tokens == 800
+    assert rem.tool_calls == 40
+    assert rem.iterations == 15
 
 
 def test_remaining_clamps_at_zero_when_over_consumed():
@@ -123,9 +120,9 @@ def test_remaining_clamps_at_zero_when_over_consumed():
     tracker = BudgetTracker(max_tokens=100, max_tool_calls=10, max_iterations=5)
     tracker.consume(tokens=100, tool_calls=10, iterations=5)
     rem = tracker.remaining()
-    assert rem.used_tokens == 0
-    assert rem.used_tool_calls == 0
-    assert rem.used_iterations == 0
+    assert rem.tokens == 0
+    assert rem.tool_calls == 0
+    assert rem.iterations == 0
 
 
 # ── reset ───────────────────────────────────────────────────────────────────
@@ -137,9 +134,9 @@ def test_reset_zeroes_all_counters():
     assert tracker.is_exhausted() is False
     tracker.reset()
     rem = tracker.remaining()
-    assert rem.used_tokens == 1000
-    assert rem.used_tool_calls == 50
-    assert rem.used_iterations == 20
+    assert rem.tokens == 1000
+    assert rem.tool_calls == 50
+    assert rem.iterations == 20
     assert tracker.is_exhausted() is False
 
 
@@ -150,7 +147,7 @@ def test_reset_lets_tracker_be_reused_after_exhaustion():
         tracker.consume(tokens=101)
     tracker.reset()
     tracker.consume(tokens=50)  # no raise
-    assert tracker.remaining().used_tokens == 50
+    assert tracker.remaining().tokens == 50
 
 
 # ── FinalizeSignal semantics ────────────────────────────────────────────────

@@ -195,6 +195,28 @@ def create_round_session(
         scoped = inject_into_tools(store, agent.permission)
         return ToolDispatcher(cast(ScopedToolsProtocol, scoped), catalog)
 
+    # 默认注入 (recall mode ③): short high-frequency data — state / 细纲 —
+    # is injected directly into the context of every agent whose read
+    # permission covers it, instead of relying on a recaller round-trip
+    # (避免 recaller 出错带来的错误传递). Variables are deliberately NOT
+    # injected (只维护不召回 — frontend display only).
+    injected_types = ("state", "short_goal")
+    injected_titles = {"state": "当前状态", "short_goal": "本轮细纲"}
+
+    def context_provider(agent: Agent) -> list[str]:
+        blocks: list[str] = []
+        for resource_type in injected_types:
+            if resource_type not in agent.permission.rules.get("read", ()):
+                continue
+            try:
+                resource = store.create_resource(resource_type, resource_type)
+                content = store.read(resource).strip()
+            except (OSError, KeyError, ValueError):
+                continue
+            if content:
+                blocks.append(f"[默认注入] {injected_titles[resource_type]}:\n{content}")
+        return blocks
+
     director_tools: ToolDispatcher | None = None
     if agent_registry.has("director"):
         director_tools = tools_factory(agent_registry.get("director"))
@@ -209,6 +231,7 @@ def create_round_session(
         prompts=prompts,
         tools_factory=tools_factory,
         sub_agent_max_turns=int(str(workflow_policy.get("sub_agent_max_turns", 3))),
+        context_provider=context_provider,
     )
 
     # time.monotonic() rather than the event-loop clock: this factory is

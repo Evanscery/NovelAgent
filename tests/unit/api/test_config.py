@@ -214,13 +214,13 @@ class TestPutProjectConfig:
         pid = _make_project(client, "C")
         resp = client.put(
             f"/api/config/{pid}",
-            json={"models": {"agent_models": {"writer": "premium"}}},
+            json={"models": {"default_tier": "premium"}},
         )
         assert resp.status_code == 200
         cfg = yaml.safe_load(
             (app_root / "workspaces" / pid / "config.yaml").read_text(encoding="utf-8")
         )
-        assert cfg["models"]["agent_models"]["writer"] == "premium"
+        assert cfg["models"]["default_tier"] == "premium"
 
     def test_missing_project_404(self, client: TestClient) -> None:
         resp = client.put("/api/config/proj_nope000", json={"display_name": "X"})
@@ -290,13 +290,26 @@ class TestPutProjectAgent:
         assert resp.status_code == 200
         assert resp.json()["task"] == "新任务描述"
 
-    def test_edit_name_mismatch_400(self, client: TestClient) -> None:
+    def test_rename_agent_via_body_name(self, client: TestClient) -> None:
+        """A body name differing from the path name is a rename (id stays)."""
         pid = _make_project(client)
         resp = client.get(f"/api/config/{pid}/agents")
         writer = next(a for a in resp.json() if a["name"] == "writer")
         writer["name"] = "renamed"
         resp = client.put(f"/api/config/{pid}/agents/writer", json=writer)
-        assert resp.status_code == 400
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["name"] == "renamed"
+        names = {a["name"] for a in client.get(f"/api/config/{pid}/agents").json()}
+        assert "renamed" in names
+        assert "writer" not in names
+
+    def test_rename_onto_taken_name_409(self, client: TestClient) -> None:
+        pid = _make_project(client)
+        resp = client.get(f"/api/config/{pid}/agents")
+        writer = next(a for a in resp.json() if a["name"] == "writer")
+        writer["name"] = "critic"  # already taken by the critic agent
+        resp = client.put(f"/api/config/{pid}/agents/writer", json=writer)
+        assert resp.status_code == 409
 
     def test_edit_unknown_agent_404(self, client: TestClient) -> None:
         pid = _make_project(client)

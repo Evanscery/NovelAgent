@@ -37,6 +37,18 @@ __all__ = [
 Role = Literal["system", "user", "assistant", "tool"]
 
 
+def format_reminders(reminders: Sequence[str]) -> str:
+    """Render reminder strings as ``<system-reminder>`` blocks.
+
+    Shared by :meth:`PromptBuilder.build` and callers that bake reminders
+    into a persistent history seed (so injected context survives every
+    turn of a conversation, not only the first request).
+    """
+    return "\n\n".join(
+        f"<system-reminder>\n{reminder}\n</system-reminder>" for reminder in reminders
+    )
+
+
 @dataclass(frozen=True)
 class Message:
     """One conversation message, provider-neutral.
@@ -176,9 +188,7 @@ class PromptBuilder:
             messages.append(Message(role="user", content=user_text))
 
         if reminders:
-            blocks = "\n\n".join(
-                f"<system-reminder>\n{reminder}\n</system-reminder>" for reminder in reminders
-            )
+            blocks = format_reminders(reminders)
             if messages and messages[-1].role == "user":
                 last = messages[-1]
                 messages[-1] = Message(

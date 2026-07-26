@@ -70,7 +70,7 @@ from app.agents.agent import Agent
 from app.agents.tree_model import AGENT_KIND
 from app.agents.workflow import WorkflowTree, generate_flow_sequence
 from app.runtime.budget import BudgetTracker, FinalizeSignal
-from app.runtime.prompt_builder import Message, PromptBuilder
+from app.runtime.prompt_builder import Message, PromptBuilder, format_reminders
 from app.runtime.runners.base import (
     AgentRunner,
     ToolCall,
@@ -194,6 +194,11 @@ class RoundExecutor:
                   sub-agent's tool results are fed back to it (so a
                   recaller can read→discover→read again and a maintainer
                   can read→edit), bounded by this many turns.
+        context_provider: Optional callable returning the 默认注入 blocks
+                  for an agent (short high-frequency data — state / 细纲 —
+                  injected directly per the recall design, so a writer
+                  sees them without a recaller round-trip). Called once
+                  per agent conversation (first turn only).
     """
 
     def __init__(
@@ -207,6 +212,7 @@ class RoundExecutor:
         prompts: PromptBuilder | None = None,
         tools_factory: Callable[[Agent], ToolDispatcher] | None = None,
         sub_agent_max_turns: int = 3,
+        context_provider: Callable[[Agent], list[str]] | None = None,
     ) -> None:
         self._runtime = runtime
         self._runner = runner
@@ -217,6 +223,13 @@ class RoundExecutor:
         self._prompts = prompts if prompts is not None else PromptBuilder(build_default_catalog())
         self._tools_factory = tools_factory
         self._sub_agent_max_turns = max(1, sub_agent_max_turns)
+        self._context_provider = context_provider
+
+    def _injected_context(self, agent: Agent) -> list[str]:
+        """Return the 默认注入 reminder blocks for *agent* (may be empty)."""
+        if self._context_provider is None:
+            return []
+        return self._context_provider(agent)
 
     async def execute_round(
         self,
@@ -291,14 +304,22 @@ class RoundExecutor:
         # to the sub-agent's response text.
         pending: dict[str, str] = {}
 
-        # The director's conversation: the runtime context opens as the
-        # first user message; each turn appends the assistant response and
-        # one tool message per dispatched tool call, so the director sees
-        # prior outputs as real conversation history rather than a prompt
-        # blob.
+        # The director's conversation: the runtime context and the 默认注入
+        # blocks (short high-frequency data per the recall design) open as
+        # the first user message; each turn appends the assistant response
+        # and one tool message per dispatched tool call, so the director
+        # sees prior outputs as real conversation history rather than a
+        # prompt blob. Injection is baked into the seed message so it
+        # persists across every turn of the loop.
         history: list[Message] = []
+        seed_parts: list[str] = []
         if context:
-            history.append(Message(role="user", content=context))
+            seed_parts.append(context)
+        injected = self._injected_context(director)
+        if injected:
+            seed_parts.append(format_reminders(injected))
+        if seed_parts:
+            history.append(Message(role="user", content="\n\n".join(seed_parts)))
 
         # The director's own depth is 0 (it is the system agent, not a
         # workflow node). Sub-agents called via call_agent are at depth 1
@@ -592,7 +613,11 @@ class RoundExecutor:
         # read→discover→read again and a maintainer can read→edit —
         # up to ``sub_agent_max_turns`` model turns.
         sub_tools = self._tools_factory(target_agent) if self._tools_factory is not None else None
-        sub_history: list[Message] = [Message(role="user", content=prompt)]
+        sub_injected = self._injected_context(target_agent)
+        first_message = prompt
+        if sub_injected:
+            first_message = f"{prompt}\n\n{format_reminders(sub_injected)}"
+        sub_history: list[Message] = [Message(role="user", content=first_message)]
         tool_lines: list[str] = []
         tokens = 0
         sub_tool_call_count = 0

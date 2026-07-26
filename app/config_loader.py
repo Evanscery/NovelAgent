@@ -47,7 +47,7 @@ class TierConfig(BaseModel):
 
 
 class ModelsConfig(BaseModel):
-    """config/models.yaml — runner selection, provider tiers, per-agent model.
+    """config/models.yaml — runner selection and provider tiers.
 
     ``runner`` selects the LLM backend: ``"mock"`` (deterministic, no
     credentials — the dry-run default) or ``"direct"`` (a real
@@ -58,7 +58,6 @@ class ModelsConfig(BaseModel):
     runner: str = "mock"
     default_tier: str = "standard"
     tiers: dict[str, TierConfig] = Field(default_factory=dict)
-    agent_models: dict[str, str] = Field(default_factory=dict)
 
 
 class RuntimeConfig(BaseModel):
