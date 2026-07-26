@@ -1,16 +1,20 @@
 """Abstract AgentRunner base class — the LLM-call boundary.
 
-A runner takes an agent and a prompt and returns an ``AgentResponse``. The
-Runtime layer (``app.runtime.runtime``) wraps a runner with concurrency,
-timeout, and retry — the runner itself only concerns itself with producing
-a single response from a single call.
+A runner takes an agent and a :class:`~app.runtime.prompt_builder.RequestSpec`
+and returns an ``AgentResponse``. The Runtime layer
+(``app.runtime.runtime``) wraps a runner with concurrency, timeout, and
+retry — the runner itself only concerns itself with producing a single
+response from a single call.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from app.runtime.prompt_builder import RequestSpec
 
 
 @runtime_checkable
@@ -89,19 +93,21 @@ class AgentResponse:
 class AgentRunner(ABC):
     """Abstract base class for all agent runners.
 
-    Subclasses implement :meth:`run`, which takes an agent and a prompt and
-    returns an :class:`AgentResponse`. Implementations MUST be deterministic
-    for a given input except where they genuinely contact an external service
+    Subclasses implement :meth:`run`, which takes an agent and a
+    :class:`~app.runtime.prompt_builder.RequestSpec` and returns an
+    :class:`AgentResponse`. Implementations MUST be deterministic for a
+    given input except where they genuinely contact an external service
     (e.g. :class:`DirectRunner`).
     """
 
     @abstractmethod
-    async def run(self, agent: RunnerAgent, prompt: str) -> AgentResponse:
+    async def run(self, agent: RunnerAgent, request: RequestSpec) -> AgentResponse:
         """Execute a single agent request and return the normalized response.
 
         Args:
-            agent:  The agent whose attributes (model, id, …) drive the call.
-            prompt: The fully-assembled prompt string to send.
+            agent:   The agent whose attributes (model, id, …) drive the call.
+            request: The fully-assembled request spec (system prompt,
+                     messages, tools, model).
 
         Returns:
             An :class:`AgentResponse`.

@@ -64,6 +64,7 @@ from app.agents.parser import render_agent_system_prompt
 from app.agents.tree_model import AGENT_KIND
 from app.agents.workflow import WorkflowTree, generate_flow_sequence
 from app.runtime.budget import BudgetTracker, FinalizeSignal
+from app.runtime.prompt_builder import Message, RequestSpec
 from app.runtime.runners.base import (
     AgentRunner,
     ToolCall,
@@ -77,6 +78,19 @@ from app.runtime.tool_dispatcher import (
 
 if TYPE_CHECKING:
     from app.agents.registry import AgentRegistry
+
+
+def _legacy_spec(agent: Agent, prompt: str) -> RequestSpec:
+    """Wrap a flat prompt string as a single-user-message RequestSpec.
+
+    Interim shim while the executor still assembles prompts as strings;
+    replaced by PromptBuilder-built specs in the message-history loop.
+    """
+    return RequestSpec(
+        system="",
+        messages=[Message(role="user", content=prompt)],
+        model=agent.model,
+    )
 
 
 @dataclass(frozen=True)
@@ -294,7 +308,7 @@ class RoundExecutor:
             # Send the director request through the runtime.
             try:
                 response = await self._runtime.send_request(
-                    director, self._runner, director_prompt
+                    director, self._runner, _legacy_spec(director, director_prompt)
                 )
             except TimeoutError:
                 rejected_calls.append(
@@ -408,7 +422,9 @@ class RoundExecutor:
         context_block = f"\n\n## 上下文\n{context}" if context else ""
         prompt = render_agent_system_prompt(director) + context_block
         try:
-            response = await self._runtime.send_request(director, self._runner, prompt)
+            response = await self._runtime.send_request(
+                director, self._runner, _legacy_spec(director, prompt)
+            )
         except Exception as exc:  # noqa: BLE001 -- chat must not crash
             return RoundResult(
                 completed_agents=[],
@@ -590,7 +606,7 @@ class RoundExecutor:
         # Run the sub-agent through the runtime.
         try:
             response = await self._runtime.send_request(
-                target_agent, self._runner, prompt
+                target_agent, self._runner, _legacy_spec(target_agent, prompt)
             )
         except TimeoutError:
             rejected_calls.append(

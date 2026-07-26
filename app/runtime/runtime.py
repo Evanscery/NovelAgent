@@ -20,6 +20,7 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+from app.runtime.prompt_builder import RequestSpec
 from app.runtime.runners.base import AgentResponse, AgentRunner, RunnerAgent
 
 logger = logging.getLogger(__name__)
@@ -93,7 +94,7 @@ class Runtime:
         self,
         agent: RunnerAgent,
         runner: AgentRunner,
-        prompt: str,
+        request: RequestSpec,
     ) -> AgentResponse:
         """Send a single request through ``runner``, wrapped with timeout + retry.
 
@@ -106,7 +107,7 @@ class Runtime:
         for attempt in range(attempts):
             try:
                 async with asyncio.timeout(self._timeout):
-                    return await runner.run(agent, prompt)
+                    return await runner.run(agent, request)
             except TimeoutError as exc:
                 last_exc = exc
                 logger.warning(
@@ -209,9 +210,9 @@ class Runtime:
 
     async def run_concurrent(
         self,
-        tasks: list[tuple[RunnerAgent, AgentRunner, str]],
+        tasks: list[tuple[RunnerAgent, AgentRunner, RequestSpec]],
     ) -> list[AgentResponse]:
-        """Create a Task per (agent, runner, prompt) tuple and await_all them.
+        """Create a Task per (agent, runner, request) tuple and await_all them.
 
         Respects ``max_concurrent`` via an :class:`asyncio.Semaphore`: at
         most ``max_concurrent`` requests run simultaneously.
@@ -220,16 +221,16 @@ class Runtime:
             return []
         loop = asyncio.get_running_loop()
         futures: list[asyncio.Task[AgentResponse]] = []
-        for agent, runner, prompt in tasks:
-            futures.append(loop.create_task(self._bounded_send(agent, runner, prompt)))
+        for agent, runner, request in tasks:
+            futures.append(loop.create_task(self._bounded_send(agent, runner, request)))
         return await self.await_all(futures)
 
     async def _bounded_send(
         self,
         agent: RunnerAgent,
         runner: AgentRunner,
-        prompt: str,
+        request: RequestSpec,
     ) -> AgentResponse:
         """``send_request`` gated by the concurrency semaphore."""
         async with self._semaphore:
-            return await self.send_request(agent, runner, prompt)
+            return await self.send_request(agent, runner, request)

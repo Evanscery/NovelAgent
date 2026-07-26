@@ -51,14 +51,6 @@ from unittest.mock import patch
 
 import pytest
 
-from app.runtime.runners.base import (
-    AgentResponse,
-    AgentRunner,
-    RunnerAgent,
-    TokenUsage,
-)
-from app.runtime.runners.direct_runner import DirectRunner
-from app.runtime.runners.mock_runner import MockRunner
 from app.data.project_repo import ProjectRepo
 from app.data.store import ResourceStore
 from app.runtime.budget import BudgetTracker, FinalizeSignal
@@ -67,6 +59,15 @@ from app.runtime.permission import (
     inject_into_tools,
     parse_permission,
 )
+from app.runtime.prompt_builder import Message, RequestSpec
+from app.runtime.runners.base import (
+    AgentResponse,
+    AgentRunner,
+    RunnerAgent,
+    TokenUsage,
+)
+from app.runtime.runners.direct_runner import DirectRunner
+from app.runtime.runners.mock_runner import MockRunner
 from app.runtime.runtime import Runtime, TransientRunnerError
 from app.runtime.tool_dispatcher import ScopedTools as ScopedToolsProtocol
 from app.runtime.tool_dispatcher import ToolDispatcher, UnknownToolError
@@ -115,7 +116,7 @@ class _FlakyRunner(AgentRunner):
         self._response = response
         self.call_count = 0
 
-    async def run(self, agent: RunnerAgent, prompt: str) -> AgentResponse:
+    async def run(self, agent: RunnerAgent, request: RequestSpec) -> AgentResponse:
         self.call_count += 1
         if self.call_count == 1:
             raise self._failure
@@ -127,6 +128,11 @@ def _resp(text: str, agent_id: str = "agent") -> AgentResponse:
         text=f"[{agent_id}] {text}",
         usage=TokenUsage(prompt_tokens=10, completion_tokens=5),
     )
+
+
+def _spec(text: str, model: str | None = None) -> RequestSpec:
+    """Wrap a plain prompt string as a single-user-message RequestSpec."""
+    return RequestSpec(system="", messages=[Message(role="user", content=text)], model=model)
 
 
 # ── Part 1: end-to-end runtime integration ────────────────────────────────
@@ -181,10 +187,10 @@ class TestRuntimeIntegration:
             StubAgent(id="beta"),
             StubAgent(id="flaky"),
         ]
-        tasks: list[tuple[RunnerAgent, AgentRunner, str]] = [
-            (agents[0], mock_a, "prompt-alpha"),
-            (agents[1], mock_b, "prompt-beta"),
-            (agents[2], flaky, "prompt-flaky"),
+        tasks: list[tuple[RunnerAgent, AgentRunner, RequestSpec]] = [
+            (agents[0], mock_a, _spec("prompt-alpha")),
+            (agents[1], mock_b, _spec("prompt-beta")),
+            (agents[2], flaky, _spec("prompt-flaky")),
         ]
 
         results = await runtime.run_concurrent(tasks)
@@ -466,7 +472,7 @@ async def test_llm_smoke_wave2(tmp_path: Path) -> None:
     os.environ.update(monkey_env)
 
     try:
-        response = await runtime.send_request(agent, runner, prompt)
+        response = await runtime.send_request(agent, runner, _spec(prompt, model=model))
     except Exception as exc:  # noqa: BLE001 — D8: record any failure, no iterate
         msg = f"{type(exc).__name__}: {exc}"
         # Auth failure (HTTP 401 / invalid API key) → SKIP per hard rule.

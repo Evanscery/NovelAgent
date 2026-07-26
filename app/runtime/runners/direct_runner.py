@@ -17,7 +17,10 @@ from collections.abc import Sequence
 
 import httpx
 
-from .base import AgentResponse, AgentRunner, RunnerAgent, TokenUsage, ToolCall
+from app.runtime.prompt_builder import RequestSpec
+from app.runtime.providers.openai_chat import OpenAIChatEncoder
+
+from .base import AgentResponse, AgentRunner, RunnerAgent
 
 
 class TransientError(Exception):
@@ -67,42 +70,6 @@ def _resolve_env(name: str) -> str:
     return value
 
 
-def _parse_tool_calls(raw_tool_calls: list[object]) -> list[ToolCall]:
-    """Extract ToolCall objects from an OpenAI-format tool_calls array."""
-    parsed: list[ToolCall] = []
-    for entry in raw_tool_calls:
-        if not isinstance(entry, dict):
-            continue
-        function = entry.get("function")
-        if not isinstance(function, dict):
-            continue
-        name = function.get("name")
-        args = function.get("arguments")
-        if not isinstance(name, str):
-            continue
-        if isinstance(args, dict):
-            arg_dict: dict[str, object] = dict(args)
-        elif isinstance(args, str):
-            # OpenAI sends arguments as a JSON string; we keep it as a single
-            # field rather than parsing JSON here so the tool dispatcher can
-            # decide how to interpret it.
-            arg_dict = {"_raw": args}
-        else:
-            arg_dict = {}
-        parsed.append(ToolCall(name=name, args=arg_dict))
-    return parsed
-
-
-def _parse_usage(raw_usage: object) -> TokenUsage:
-    """Extract TokenUsage from an OpenAI-format usage object."""
-    if not isinstance(raw_usage, dict):
-        return TokenUsage(0, 0)
-    return TokenUsage(
-        prompt_tokens=_as_int(raw_usage.get("prompt_tokens"), 0),
-        completion_tokens=_as_int(raw_usage.get("completion_tokens"), 0),
-    )
-
-
 class DirectRunner(AgentRunner):
     """Runner that talks to an OpenAI-compatible chat completions endpoint.
 
@@ -149,20 +116,19 @@ class DirectRunner(AgentRunner):
             self._backoff: list[float] = [_as_float(x, 0.0) for x in backoff]
         else:
             self._backoff = []
+        self._encoder = OpenAIChatEncoder()
 
-    async def run(self, agent: RunnerAgent, prompt: str) -> AgentResponse:
-        """Send the prompt to the configured OpenAI-compatible endpoint."""
+    async def run(self, agent: RunnerAgent, request: RequestSpec) -> AgentResponse:
+        """Send the request to the configured OpenAI-compatible endpoint."""
         api_key = _resolve_env(self._api_key_env)
         base_url = _resolve_env(self._base_url_env).rstrip("/")
 
-        # The agent's per-agent model override takes precedence over the
-        # runner-level default when present.
-        model = agent.model if agent.model else self._model_name
-
-        request_body: dict[str, object] = {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-        }
+        request_body = self._encoder.encode(request)
+        # The request's model (the agent's per-agent override) takes
+        # precedence over the runner-level default when present. Note:
+        # known issue — the agent's model is a config tier (e.g.
+        # "premium"), sent as-is; tier resolution is future work.
+        request_body["model"] = request.model or self._model_name
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -204,7 +170,7 @@ class DirectRunner(AgentRunner):
             raise TransientError(f"DirectRunner: network error: {exc}") from exc
 
         if resp.status_code == 200:
-            return self._parse_response(resp.json())
+            return self._encoder.decode(resp.json())
 
         if _is_transient_status(resp.status_code):
             raise TransientError(
@@ -212,41 +178,4 @@ class DirectRunner(AgentRunner):
             )
         raise NonTransientError(
             f"DirectRunner: HTTP {resp.status_code}: {resp.text[:200]}"
-        )
-
-    @staticmethod
-    def _parse_response(payload: object) -> AgentResponse:
-        """Turn an OpenAI-format chat completion JSON into an AgentResponse."""
-        if not isinstance(payload, dict):
-            msg = "DirectRunner: response payload is not a JSON object"
-            raise RuntimeError(msg)
-
-        choices = payload.get("choices")
-        if not isinstance(choices, list) or not choices:
-            msg = "DirectRunner: response has no 'choices' array"
-            raise RuntimeError(msg)
-
-        first = choices[0]
-        if not isinstance(first, dict):
-            msg = "DirectRunner: first choice is not an object"
-            raise RuntimeError(msg)
-
-        message = first.get("message")
-        if not isinstance(message, dict):
-            msg = "DirectRunner: first choice has no 'message' object"
-            raise RuntimeError(msg)
-
-        text = message.get("content")
-        text_str = text if isinstance(text, str) else ""
-
-        raw_tool_calls = message.get("tool_calls")
-        tool_calls = _parse_tool_calls(raw_tool_calls) if isinstance(raw_tool_calls, list) else []
-
-        usage = _parse_usage(payload.get("usage"))
-
-        return AgentResponse(
-            text=text_str,
-            tool_calls=tool_calls,
-            usage=usage,
-            raw=payload,
         )

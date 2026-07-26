@@ -10,7 +10,8 @@ from typing import Any
 import httpx
 import pytest
 
-from app.runtime.runners.base import AgentResponse, TokenUsage, ToolCall
+from app.runtime.prompt_builder import Message, RequestSpec
+from app.runtime.runners.base import AgentResponse, ToolCall
 from app.runtime.runners.direct_runner import (
     DirectRunner,
     NonTransientError,
@@ -27,6 +28,11 @@ class StubAgent:
     model: str | None = None
 
 
+def _spec(text: str, model: str | None = None) -> RequestSpec:
+    """Wrap a plain prompt string as a single-user-message RequestSpec."""
+    return RequestSpec(system="", messages=[Message(role="user", content=text)], model=model)
+
+
 # ── MockRunner ──────────────────────────────────────────────────────────────
 
 
@@ -34,8 +40,8 @@ class StubAgent:
 async def test_mock_runner_returns_deterministic_response() -> None:
     runner = MockRunner()
     agent = StubAgent(id="test-agent")
-    r1 = await runner.run(agent, "hello world")
-    r2 = await runner.run(agent, "hello world")
+    r1 = await runner.run(agent, _spec("hello world"))
+    r2 = await runner.run(agent, _spec("hello world"))
     assert r1 == r2
     assert r1.text.startswith("[mock:test-agent] Response for prompt ")
     assert r1.tool_calls == []
@@ -47,16 +53,16 @@ async def test_mock_runner_returns_deterministic_response() -> None:
 async def test_mock_runner_different_input_different_output() -> None:
     runner = MockRunner()
     agent = StubAgent(id="test-agent")
-    r1 = await runner.run(agent, "prompt A")
-    r2 = await runner.run(agent, "prompt B")
+    r1 = await runner.run(agent, _spec("prompt A"))
+    r2 = await runner.run(agent, _spec("prompt B"))
     assert r1.text != r2.text
 
 
 @pytest.mark.asyncio
 async def test_mock_runner_different_agent_different_output() -> None:
     runner = MockRunner()
-    r1 = await runner.run(StubAgent(id="agent-1"), "same prompt")
-    r2 = await runner.run(StubAgent(id="agent-2"), "same prompt")
+    r1 = await runner.run(StubAgent(id="agent-1"), _spec("same prompt"))
+    r2 = await runner.run(StubAgent(id="agent-2"), _spec("same prompt"))
     assert r1.text != r2.text
     assert "[mock:agent-1]" in r1.text
     assert "[mock:agent-2]" in r2.text
@@ -83,7 +89,7 @@ async def test_mock_runner_is_agent_agnostic_protocol() -> None:
             self.model: str | None = None
 
     runner = MockRunner()
-    r = await runner.run(CustomAgent("custom"), "p")
+    r = await runner.run(CustomAgent("custom"), _spec("p"))
     assert isinstance(r, AgentResponse)
     assert "[mock:custom]" in r.text
 
@@ -144,12 +150,12 @@ async def test_direct_runner_builds_valid_openai_request(monkeypatch: pytest.Mon
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=10) as client:
             resp = await client.post(url, json=body, headers=headers)
         if resp.status_code == 200:
-            return runner._parse_response(resp.json())
+            return runner._encoder.decode(resp.json())
         raise RuntimeError(f"unexpected status {resp.status_code}")
 
     runner._post_once = patched_post  # type: ignore[method-assign]
     try:
-        result = await runner.run(StubAgent(id="a1", model=None), "Hello")
+        result = await runner.run(StubAgent(id="a1", model=None), _spec("Hello"))
     finally:
         runner._post_once = original_post  # type: ignore[method-assign]
 
@@ -191,10 +197,10 @@ async def test_direct_runner_agent_model_overrides_runner_default(monkeypatch: p
     async def patched_post(url: str, headers: dict[str, str], body: dict[str, object]) -> AgentResponse:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=10) as client:
             resp = await client.post(url, json=body, headers=headers)
-        return runner._parse_response(resp.json())
+        return runner._encoder.decode(resp.json())
 
     runner._post_once = patched_post  # type: ignore[method-assign]
-    await runner.run(StubAgent(id="a1", model="agent-specific-model"), "p")
+    await runner.run(StubAgent(id="a1"), _spec("p", model="agent-specific-model"))
 
     assert captured["body"]["model"] == "agent-specific-model"
 
@@ -232,16 +238,17 @@ async def test_direct_runner_parses_tool_calls(monkeypatch: pytest.MonkeyPatch) 
     async def patched_post(url: str, headers: dict[str, str], body: dict[str, object]) -> AgentResponse:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=10) as client:
             resp = await client.post(url, json=body, headers=headers)
-        return runner._parse_response(resp.json())
+        return runner._encoder.decode(resp.json())
 
     runner._post_once = patched_post  # type: ignore[method-assign]
-    result = await runner.run(StubAgent(id="a1"), "p")
+    result = await runner.run(StubAgent(id="a1"), _spec("p"))
 
     assert len(result.tool_calls) == 1
     assert isinstance(result.tool_calls[0], ToolCall)
     assert result.tool_calls[0].name == "read"
-    # Arguments arrive as a JSON string → wrapped under "_raw".
-    assert result.tool_calls[0].args == {"_raw": '{"resource": "state"}'}
+    # Arguments arrive as a JSON string → parsed into a dict; id carried.
+    assert result.tool_calls[0].args == {"resource": "state"}
+    assert result.tool_calls[0].id == "call_1"
 
 
 # ── DirectRunner: missing env var ────────────────────────────────────────────
@@ -263,7 +270,7 @@ async def test_direct_runner_missing_api_key_env_raises(monkeypatch: pytest.Monk
     )
 
     with pytest.raises(RuntimeError, match="MISSING_KEY"):
-        await runner.run(StubAgent(id="a1"), "p")
+        await runner.run(StubAgent(id="a1"), _spec("p"))
 
 
 @pytest.mark.asyncio
@@ -282,7 +289,7 @@ async def test_direct_runner_empty_api_key_env_raises(monkeypatch: pytest.Monkey
     )
 
     with pytest.raises(RuntimeError, match="EMPTY_KEY"):
-        await runner.run(StubAgent(id="a1"), "p")
+        await runner.run(StubAgent(id="a1"), _spec("p"))
 
 
 @pytest.mark.asyncio
@@ -301,7 +308,7 @@ async def test_direct_runner_missing_base_url_env_raises(monkeypatch: pytest.Mon
     )
 
     with pytest.raises(RuntimeError, match="MISSING_URL"):
-        await runner.run(StubAgent(id="a1"), "p")
+        await runner.run(StubAgent(id="a1"), _spec("p"))
 
 
 # ── DirectRunner: retry on 500, raise on 400 ────────────────────────────────
@@ -342,7 +349,7 @@ async def test_direct_runner_retries_on_500_then_succeeds(monkeypatch: pytest.Mo
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=10) as client:
             resp = await client.post(url, json=body, headers=headers)
         if resp.status_code == 200:
-            return runner._parse_response(resp.json())
+            return runner._encoder.decode(resp.json())
         from app.runtime.runners.direct_runner import _is_transient_status
 
         if _is_transient_status(resp.status_code):
@@ -350,7 +357,7 @@ async def test_direct_runner_retries_on_500_then_succeeds(monkeypatch: pytest.Mo
         raise NonTransientError(f"HTTP {resp.status_code}")
 
     runner._post_once = patched_post  # type: ignore[method-assign]
-    result = await runner.run(StubAgent(id="a1"), "p")
+    result = await runner.run(StubAgent(id="a1"), _spec("p"))
 
     assert result.text == "recovered"
     assert call_count == 3
@@ -393,7 +400,7 @@ async def test_direct_runner_raises_on_400(monkeypatch: pytest.MonkeyPatch) -> N
 
     runner._post_once = patched_post  # type: ignore[method-assign]
     with pytest.raises(NonTransientError, match="400"):
-        await runner.run(StubAgent(id="a1"), "p")
+        await runner.run(StubAgent(id="a1"), _spec("p"))
 
     # 400 is non-transient → no retry.
     assert call_count == 1
@@ -433,7 +440,7 @@ async def test_direct_runner_retries_on_429(monkeypatch: pytest.MonkeyPatch) -> 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=10) as client:
             resp = await client.post(url, json=body, headers=headers)
         if resp.status_code == 200:
-            return runner._parse_response(resp.json())
+            return runner._encoder.decode(resp.json())
         from app.runtime.runners.direct_runner import _is_transient_status
 
         if _is_transient_status(resp.status_code):
@@ -441,7 +448,7 @@ async def test_direct_runner_retries_on_429(monkeypatch: pytest.MonkeyPatch) -> 
         raise NonTransientError(f"HTTP {resp.status_code}")
 
     runner._post_once = patched_post  # type: ignore[method-assign]
-    result = await runner.run(StubAgent(id="a1"), "p")
+    result = await runner.run(StubAgent(id="a1"), _spec("p"))
     assert result.text == "ok"
     assert call_count == 2
 
@@ -488,11 +495,11 @@ async def test_direct_runner_retries_on_timeout(monkeypatch: pytest.MonkeyPatch)
         except httpx.TimeoutException as exc:
             raise TransientError(f"simulated timeout: {exc}") from exc
         if resp.status_code == 200:
-            return runner._parse_response(resp.json())
+            return runner._encoder.decode(resp.json())
         raise RuntimeError(f"unexpected status {resp.status_code}")
 
     runner._post_once = patched_post  # type: ignore[method-assign]
-    result = await runner.run(StubAgent(id="a1"), "p")
+    result = await runner.run(StubAgent(id="a1"), _spec("p"))
     assert result.text == "recovered"
     assert transport.call_count == 2
 
@@ -530,40 +537,3 @@ def test_direct_runner_missing_base_url_env_name_raises() -> None:
             model_config={"provider": "openai_compatible", "model": "m", "api_key_env": "K"},
             runtime_policy={},
         )
-
-
-# ── DirectRunner: response parsing edge cases ───────────────────────────────
-
-
-def test_direct_runner_parse_response_missing_choices_raises() -> None:
-    with pytest.raises(RuntimeError, match="no 'choices'"):
-        DirectRunner._parse_response({"id": "x"})
-
-
-def test_direct_runner_parse_response_empty_choices_raises() -> None:
-    with pytest.raises(RuntimeError, match="no 'choices'"):
-        DirectRunner._parse_response({"choices": []})
-
-
-def test_direct_runner_parse_response_non_dict_payload_raises() -> None:
-    with pytest.raises(RuntimeError, match="not a JSON object"):
-        DirectRunner._parse_response("not a dict")
-
-
-def test_direct_runner_parse_response_non_dict_message() -> None:
-    payload = {"choices": [{"message": "not a dict"}]}
-    with pytest.raises(RuntimeError, match="no 'message'"):
-        DirectRunner._parse_response(payload)
-
-
-def test_direct_runner_parse_response_missing_usage_defaults_to_zero() -> None:
-    payload = {"choices": [{"message": {"content": "hi"}}]}
-    result = DirectRunner._parse_response(payload)
-    assert result.usage == TokenUsage(0, 0)
-    assert result.text == "hi"
-
-
-def test_direct_runner_parse_response_non_string_content_treated_as_empty() -> None:
-    payload = {"choices": [{"message": {"content": None}}]}
-    result = DirectRunner._parse_response(payload)
-    assert result.text == ""
