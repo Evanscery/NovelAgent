@@ -272,3 +272,139 @@ class TestDefaultWorkflowFallback:
         """
         tree = workflow_routes._load_workflow_tree(tmp_path)
         assert tree.node_count() > 0
+
+
+# ── export / import (portable workflows) ─────────────────────────────────
+
+
+class TestWorkflowExportImport:
+    def _make_project(self, client: TestClient, name: str) -> str:
+        resp = client.post("/api/projects", json={"display_name": name, "mode": "novel"})
+        assert resp.status_code == 201, resp.text
+        return resp.json()["id"]
+
+    def _add_custom_agent(self, app_root: Path, project_id: str) -> None:
+        agents_dir = app_root / "workspaces" / project_id / "agents"
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        (agents_dir / "customwriter.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "id": "custom-writer-v1",
+                    "name": "customwriter",
+                    "task": "custom writing task",
+                    "input": "i",
+                    "output": "o",
+                    "permission": {"read": ["state"], "write": ["notes"]},
+                },
+                allow_unicode=True,
+            ),
+            encoding="utf-8",
+        )
+
+    def _set_workflow(self, app_root: Path, project_id: str) -> None:
+        (app_root / "workspaces" / project_id / "workflow.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "nodes": [
+                        {"id": "n1", "agent_name": "customwriter", "description": "写", "params": {}}
+                    ],
+                    "wires": [],
+                },
+                allow_unicode=True,
+            ),
+            encoding="utf-8",
+        )
+
+    def test_round_trip_export_import_materializes_agent_by_id(
+        self, client: TestClient, app_root: Path
+    ) -> None:
+        """Project A's custom-agent workflow exports self-contained; after
+        import into project B, B's round session materializes the agent
+        by id."""
+        from app.agents.workflow import load_workflow as load_tree
+        from app.runtime.session import create_round_session
+
+        project_a = self._make_project(client, "Project A")
+        project_b = self._make_project(client, "Project B")
+        self._add_custom_agent(app_root, project_a)
+        self._set_workflow(app_root, project_a)
+
+        exported = client.get(f"/api/workflow/{project_a}/export")
+        assert exported.status_code == 200, exported.text
+        data = exported.json()
+        # The export embeds the custom agent's full definition.
+        def_ids = [d["id"] for d in data["definitions"]]
+        assert "custom-writer-v1" in def_ids
+        # The node is pinned to the definition id.
+        assert data["all_nodes"]["n1"]["definition_id"] == "custom-writer-v1"
+
+        imported = client.post(f"/api/workflow/{project_b}/import", json=data)
+        assert imported.status_code == 200, imported.text
+        assert imported.json()["imported"] is True
+
+        # Project B's round session materializes the agent by id even
+        # though B has no agents/customwriter.yaml of its own.
+        b_path = app_root / "workspaces" / project_b
+        tree = load_tree(b_path / "workflow.yaml")
+        session = create_round_session(
+            project_path=b_path,
+            project_id=project_b,
+            context="ctx",
+            tree=tree,
+            max_iterations=None,
+            maximal_recursive_calling_depth=None,
+        )
+        agent = session.registry.get("custom-writer-v1")
+        assert agent.name == "customwriter"
+        assert agent.task == "custom writing task"
+
+    def test_import_malformed_tree_returns_400(
+        self, client: TestClient, project_id: str
+    ) -> None:
+        resp = client.post(
+            f"/api/workflow/{project_id}/import", json={"root_id": "x"}
+        )
+        assert resp.status_code == 400
+        assert "Invalid workflow tree" in resp.json()["detail"]
+
+    def test_import_without_definitions_returns_422_with_node_list(
+        self, client: TestClient, app_root: Path, project_id: str
+    ) -> None:
+        """A tree-format payload whose nodes carry no embedded definitions
+        is rejected with the unresolved node ids listed."""
+        payload = {
+            "root_id": "n1",
+            "all_nodes": {
+                "n1": {
+                    "id": "n1",
+                    "agent_name": "writer",
+                    "description": "",
+                    "params": {},
+                    "depth": 0,
+                    "parent_id": None,
+                    "dependency_ids": [],
+                }
+            },
+            "definitions": [],
+        }
+        resp = client.post(f"/api/workflow/{project_id}/import", json=payload)
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert detail["undefined_nodes"] == ["n1"]
+
+    def test_export_unresolvable_agent_returns_422(
+        self, client: TestClient, app_root: Path
+    ) -> None:
+        project = self._make_project(client, "Dangling")
+        (app_root / "workspaces" / project / "workflow.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "nodes": [{"id": "n1", "agent_name": "no-such-agent", "params": {}}],
+                    "wires": [],
+                },
+            ),
+            encoding="utf-8",
+        )
+        resp = client.get(f"/api/workflow/{project}/export")
+        assert resp.status_code == 422
+        assert "no-such-agent" in resp.json()["detail"]

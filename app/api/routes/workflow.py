@@ -40,11 +40,12 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from fastapi import Path as FastPath
 
+from app.agents.registry import build_project_registry
 from app.agents.workflow import WorkflowTree, load_workflow
 from app.api.schemas import (
     RoundResultSummary,
@@ -328,6 +329,84 @@ def stop_workflow(
         record.task.cancel()
         record.logs.append(f"stop requested for round {record.round_id}")
     return record.to_response()
+
+
+@router.get("/{project_id}/export")
+def export_workflow(
+    project_id: ProjectIdPath,
+    root: RootDep,
+) -> dict[str, Any]:
+    """Export the project's workflow as a self-contained portable dict.
+
+    The tree is serialized with every agent node's full definition
+    embedded (resolved against the project registry: builtins +
+    per-project overrides), so the recipient reconstructs the exact
+    same workflow instead of binding node names to whatever agents they
+    happen to have locally.
+
+    Returns ``422`` when a node's agent name cannot be resolved in this
+    project (exporting a dangling reference would produce an unusable
+    workflow).
+    """
+    project_path = _resolve_project(root, project_id)
+    tree = _load_workflow_tree(project_path)
+    try:
+        registry = build_project_registry(project_path)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Project agent override is invalid: {exc}",
+        ) from exc
+    try:
+        return tree.to_dict(registry=registry)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post("/{project_id}/import")
+def import_workflow(
+    project_id: ProjectIdPath,
+    root: RootDep,
+    payload: Annotated[dict[str, Any], Body(...)],
+) -> dict[str, Any]:
+    """Import a portable workflow (produced by ``GET .../export``).
+
+    Validates the tree structure (``400`` on malformed input), requires
+    every node to carry an embedded definition (``422`` listing the
+    unresolved nodes otherwise), and saves the tree as the project's
+    ``workflow.yaml``. The embedded definitions are registered into the
+    round registry at run time (see
+    :func:`app.runtime.session.create_round_session`), so the imported
+    workflow runs with its own agents regardless of name collisions.
+    """
+    project_path = _resolve_project(root, project_id)
+    try:
+        tree = WorkflowTree.from_dict(payload)
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid workflow tree: {exc}",
+        ) from exc
+
+    undefined = tree.undefined_nodes()
+    if undefined:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": "workflow import requires embedded definitions for every node",
+                "undefined_nodes": undefined,
+            },
+        )
+
+    tree.save(project_path / "workflow.yaml")
+    return {
+        "imported": True,
+        "node_count": tree.node_count(),
+        "definition_count": len(tree.definitions),
+    }
 
 
 __all__ = [
