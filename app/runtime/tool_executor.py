@@ -1,10 +1,10 @@
-"""Runtime-layer ToolExecutor — agent-facing tool executor wrapping ScopedTools.
+"""Runtime-layer tool implementations — ToolExecutor + pure runtime tools.
 
-Migrated from ``app/agents/tools.py`` (todo 3 of the layer-violation fix).
-The schema metadata (``TOOL_SCHEMAS``, ``TOOL_REGISTRY``, ``ALLOWED_TOOLS``)
-stays in the Agent layer at ``app/agents/tools.py``; the executor class
-lives here in the Runtime layer because it is runtime execution glue, not
-agent-facing schema definition.
+The schema metadata (:data:`app.agents.tools.BUILTIN_TOOL_SCHEMAS`) stays
+in the Agent layer; the execution glue lives here in the Runtime layer:
+:class:`ToolExecutor` wraps the permission-scoped storage tools, and
+:func:`dice_roll` is a pure runtime tool invoked via the
+:class:`~app.runtime.tool_catalog.ToolCatalog`.
 
 The executor holds a :class:`~app.runtime.permission.ScopedTools` (which
 wraps a :class:`~app.data.store.ResourceStore` + a

@@ -109,7 +109,7 @@ def normalize_preset_to_markdown(raw: str | dict[str, Any] | list[Any]) -> str:
     * ``str``   — assumed to already be markdown (returned as-is).
     * ``dict``  — JSON/YAML preset mapping; each recognised section key
                   becomes a ``## <key>`` header with the value as the body.
-                  Unrecognised keys are dropped (not extracted as skills).
+                  Unrecognised keys are dropped (not extracted).
     * ``list``  — a list of ``{name, content}`` / ``{title, text}`` dicts;
                   each becomes a ``## <name>`` section.
 
