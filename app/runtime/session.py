@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app.agents.registry import AgentRegistry, build_default_registry
 from app.agents.agent import Agent
+from app.agents.registry import AgentRegistry, build_default_registry
 from app.agents.tree_model import AGENT_KIND
 from app.agents.workflow import WorkflowTree
 from app.runtime.budget import BudgetTracker
@@ -153,7 +154,9 @@ def create_round_session(
         maximal_recursive_calling_depth=depth,
     )
 
-    round_id = f"round_{asyncio.get_event_loop().time():.0f}_{id(executor):x}"
+    # time.monotonic() rather than the event-loop clock: this factory is
+    # callable outside a running loop (unit tests, future CLI paths).
+    round_id = f"round_{time.monotonic():.0f}_{id(executor):x}"
 
     return RoundSession(
         round_id=round_id,
