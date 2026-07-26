@@ -44,6 +44,9 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.e2e._procutil import kill_port_listener
+from tests.e2e._procutil import kill_process_tree as _kill_process_tree
+
 # ── Skip-if-Playwright-unavailable guard ──────────────────────────────────
 
 
@@ -148,46 +151,6 @@ def _wait_for_http(
     raise RuntimeError(msg)
 
 
-def _kill_process_tree(proc: subprocess.Popen[bytes]) -> None:
-    """Terminate a subprocess and its children (vite spawns node children).
-
-    On Windows, ``proc.terminate()`` only kills the immediate process
-    (e.g. the ``cmd.exe`` wrapper that launched ``npm``). The vite dev
-    server runs as a child ``node.exe`` process that would survive. We
-    use ``taskkill /T /F /PID <pid>`` to kill the whole tree. On
-    non-Windows we fall back to SIGTERM + SIGKILL.
-    """
-    if proc.poll() is not None:
-        return
-    pid = proc.pid
-    if sys.platform == "win32":
-        # taskkill /T kills the whole process tree; /F forces termination.
-        subprocess.run(
-            ["taskkill", "/T", "/F", "/PID", str(pid)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        try:
-            proc.wait(timeout=5.0)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            try:
-                proc.wait(timeout=5.0)
-            except subprocess.TimeoutExpired:
-                pass
-    else:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5.0)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            try:
-                proc.wait(timeout=5.0)
-            except subprocess.TimeoutExpired:
-                pass
-
-
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
 
@@ -281,6 +244,7 @@ uvicorn.run(app, host='127.0.0.1', port={BACKEND_PORT}, log_level='warning')
         yield f"http://127.0.0.1:{BACKEND_PORT}"
     finally:
         _kill_process_tree(proc)
+        kill_port_listener(BACKEND_PORT)
         bootstrap.unlink(missing_ok=True)
 
 
@@ -309,6 +273,10 @@ def frontend_url(app_root: Path) -> Generator[str, None, None]:
 
     # ``npm.cmd`` is the Windows wrapper that resolves the npm.ps1 / npm bin.
     # We pass --port explicitly to be robust against vite.config.ts changes.
+    # A vite orphaned by a previous run would squat on the strict port and
+    # serve a half-dead app — clear it before binding.
+    kill_port_listener(VITE_PORT)
+
     env = os.environ.copy()
     proc = subprocess.Popen(
         ["npm.cmd", "run", "dev", "--", "--port", str(VITE_PORT), "--strictPort"],
@@ -324,6 +292,7 @@ def frontend_url(app_root: Path) -> Generator[str, None, None]:
         yield f"http://127.0.0.1:{VITE_PORT}"
     finally:
         _kill_process_tree(proc)
+        kill_port_listener(VITE_PORT)
 
 
 @pytest.fixture()

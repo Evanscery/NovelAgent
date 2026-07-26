@@ -40,6 +40,9 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.e2e._procutil import kill_port_listener
+from tests.e2e._procutil import kill_process_tree as _kill_process_tree
+
 # ── Skip guards ──────────────────────────────────────────────────────────
 
 
@@ -121,37 +124,6 @@ def _wait_for_http(url: str, *, timeout_s: float = 20.0, expected_status: int = 
         time.sleep(0.2)
     msg = f"{url} did not return {expected_status} within {timeout_s}s (last_err={last_err!r})"
     raise RuntimeError(msg)
-
-
-def _kill_process_tree(proc: subprocess.Popen[bytes]) -> None:
-    if proc.poll() is not None:
-        return
-    pid = proc.pid
-    if sys.platform == "win32":
-        subprocess.run(
-            ["taskkill", "/T", "/F", "/PID", str(pid)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        try:
-            proc.wait(timeout=5.0)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            try:
-                proc.wait(timeout=5.0)
-            except subprocess.TimeoutExpired:
-                pass
-    else:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5.0)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            try:
-                proc.wait(timeout=5.0)
-            except subprocess.TimeoutExpired:
-                pass
 
 
 def _load_env_local(repo_root: Path) -> None:
@@ -265,7 +237,7 @@ from app.api.server import create_app
 from app.api.routes import chat as chat_routes
 from app.runtime.runners.direct_runner import DirectRunner
 
-def _real_chat_runner_factory():
+def _real_chat_runner_factory(root, project_id):
     model_config = {{
         'provider': 'openai_compatible',
         'model': os.environ.get('MODEL_HIGH', 'gemini-3.1-pro-preview'),
@@ -299,6 +271,7 @@ uvicorn.run(app, host='127.0.0.1', port={BACKEND_PORT}, log_level='warning')
         yield f"http://127.0.0.1:{BACKEND_PORT}"
     finally:
         _kill_process_tree(proc)
+        kill_port_listener(BACKEND_PORT)
         bootstrap.unlink(missing_ok=True)
 
 
