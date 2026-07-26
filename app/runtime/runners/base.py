@@ -42,12 +42,16 @@ class ToolCall:
     """A single tool call parsed from a model response.
 
     Attributes:
-        name: Tool name (e.g. ``"read"``, ``"search"``, ``"write"``).
+        name: Tool name (e.g. ``"read"``, ``"write"``, ``"list_files"``).
         args: Tool arguments as a JSON-like dict.
+        id:   Provider-assigned call id (OpenAI ``tool_calls[].id``), used
+              to correlate a ``tool`` message with the call it answers.
+              ``None`` when the provider does not assign ids.
     """
 
     name: str
     args: dict[str, object]
+    id: str | None = None
 
 
 @dataclass(frozen=True)
