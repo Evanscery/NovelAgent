@@ -1,11 +1,15 @@
-"""Parse agent tool-call requests, dispatch to the unified tool set, reject overreach.
+"""Parse agent tool-call requests, dispatch to the tool surface, reject overreach.
 
-Per ``docs/refactor_guide.md:112-123`` the standardized tool surface is a
-small set of unified tools — ``read``, ``write``, ``list_files``,
-``glob_files``, ``grep_lines``, ``read_lines``. The legacy ``readFile`` /
-``readMemory`` / ``readLore`` style proliferation is forbidden; this
-dispatcher rejects any tool name outside the allowed set with
-:class:`UnknownToolError`.
+Dispatch is catalog-driven, in order:
+
+1. A :class:`~app.runtime.tool_catalog.ToolCatalog` implementation
+   (runtime tools such as ``dice_roll``, plus mounted MCP/imported tools).
+2. The permission-scoped ``ScopedTools`` surface (the six storage tools
+   ``read`` / ``write`` / ``list_files`` / ``glob_files`` /
+   ``grep_lines`` / ``read_lines``).
+3. Anything else raises :class:`UnknownToolError` listing the legal names
+   — the legacy ``readFile`` / ``readMemory`` style proliferation stays
+   forbidden.
 
 The dispatcher does NOT enforce permission itself — that is the job of the
 ``ScopedTools`` it is handed (produced by ``app.runtime.permission``'s
@@ -19,9 +23,12 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from app.runtime.runners.base import ToolCall
+
+if TYPE_CHECKING:
+    from app.runtime.tool_catalog import ToolCatalog
 
 __all__ = [
     "ScopedTools",
@@ -32,8 +39,17 @@ __all__ = [
 ]
 
 
-_ALLOWED_TOOLS: frozenset[str] = frozenset(
-    {"read", "write", "list_files", "glob_files", "grep_lines", "read_lines"}
+#: The storage-tool methods routed to the ScopedTools surface. This is a
+#: routing table (which names map to scoped methods), not a tool
+#: allowlist — the tool surface itself is declared by
+#: :data:`app.agents.tools.BUILTIN_TOOL_SCHEMAS` / the ToolCatalog.
+_SCOPED_TOOL_METHODS: tuple[str, ...] = (
+    "read",
+    "write",
+    "list_files",
+    "glob_files",
+    "grep_lines",
+    "read_lines",
 )
 
 
@@ -158,15 +174,23 @@ def _split_top_level(text: str) -> list[str]:
 class ToolDispatcher:
     """Parse agent output for tool calls and dispatch them to scoped tools.
 
-    The dispatcher is the bridge between an agent's textual response and the
-    permission-scoped tool surface. It owns *parsing* (two supported formats)
-    and *routing* (only the unified tools are allowed); it owns neither
+    The dispatcher is the bridge between an agent's tool calls and the
+    tool surface. It owns *parsing* (two supported formats) and *routing*
+    (catalog impls first, then the scoped storage tools); it owns neither
     permission enforcement (that is ``ScopedTools``' job) nor tool
-    implementation (that is ``app.runtime.tool_executor``'s job).
+    implementation (that is the catalog's / ``app.runtime.tool_executor``'s
+    job).
+
+    Args:
+        scoped_tools: The permission-scoped storage-tool surface.
+        catalog:      Optional :class:`ToolCatalog`; tools with a catalog
+            implementation (e.g. ``dice_roll``, mounted MCP tools) are
+            invoked through it, taking precedence over scoped methods.
     """
 
-    def __init__(self, scoped_tools: ScopedTools) -> None:
+    def __init__(self, scoped_tools: ScopedTools, catalog: ToolCatalog | None = None) -> None:
         self._tools = scoped_tools
+        self._catalog = catalog
 
     # ── parsing ────────────────────────────────────────────────────────────
 
@@ -213,25 +237,32 @@ class ToolDispatcher:
     # ── dispatch ───────────────────────────────────────────────────────────
 
     def dispatch(self, tool_call: ToolCall) -> ToolResult:
-        """Route ``tool_call`` to the matching scoped tool.
+        """Route ``tool_call``: catalog impl first, then scoped tools.
 
         Raises:
-            UnknownToolError: if ``tool_call.name`` is not one of the
-                allowed unified tools.
+            UnknownToolError: if ``tool_call.name`` has neither a catalog
+                implementation nor a scoped storage method. The message
+                lists the legal tool names.
             PermissionDenied: propagated unchanged from the scoped tool
                 when the agent lacks permission.
         """
         name = tool_call.name
-        if name not in _ALLOWED_TOOLS:
-            msg = (
-                f"Unknown tool: {name}. "
-                "Only read/write/list_files/glob_files/grep_lines/read_lines are allowed."
-            )
-            raise UnknownToolError(msg)
 
-        method = getattr(self._tools, name)
-        result = method(**tool_call.args)
-        return ToolResult(ok=True, output=result)
+        if self._catalog is not None and self._catalog.has_impl(name):
+            result = self._catalog.invoke(name, **tool_call.args)
+            return ToolResult(ok=True, output=result)
+
+        if name in _SCOPED_TOOL_METHODS:
+            method = getattr(self._tools, name)
+            result = method(**tool_call.args)
+            return ToolResult(ok=True, output=result)
+
+        legal = sorted(
+            set(_SCOPED_TOOL_METHODS)
+            | (set(self._catalog.impl_names()) if self._catalog is not None else set())
+        )
+        msg = f"Unknown tool: {name}. Legal tools: {', '.join(legal)}."
+        raise UnknownToolError(msg)
 
     # ── convenience ────────────────────────────────────────────────────────
 
