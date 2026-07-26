@@ -66,9 +66,20 @@ class DirectRunner(AgentRunner):
             - ``max_retries``      : max retry attempts on transient errors.
             - ``backoff_seconds``  : list of wait seconds between retries
               (one per retry attempt; extra entries are ignored).
+        tier_models: Mapping of config tier name (e.g. ``"premium"``) to
+            the real model name resolved from that tier's ``model_env``
+            (``None`` when the env var is unset). An agent's ``model``
+            attribute names a tier; it is resolved through this mapping
+            before being sent to the endpoint. A value that is not a known
+            tier is passed through as a literal model name.
     """
 
-    def __init__(self, model_config: dict[str, object], runtime_policy: dict[str, object]) -> None:
+    def __init__(
+        self,
+        model_config: dict[str, object],
+        runtime_policy: dict[str, object],
+        tier_models: dict[str, str | None] | None = None,
+    ) -> None:
         provider = model_config.get("provider", "openai_compatible")
         if provider != "openai_compatible":
             msg = f"DirectRunner: unsupported provider '{provider}' (only 'openai_compatible' supported)"
@@ -99,6 +110,28 @@ class DirectRunner(AgentRunner):
         else:
             self._backoff = []
         self._encoder = OpenAIChatEncoder()
+        self._tier_models = dict(tier_models) if tier_models else {}
+
+    def _resolve_model(self, requested: str | None) -> str:
+        """Resolve the request's model (a tier name or literal) to a model name.
+
+        Tier names come from the agent's ``model`` attribute; they resolve
+        through ``tier_models``. A known tier whose env var is unset raises
+        instead of sending the tier name to the endpoint (which would 400).
+        Unknown values pass through as literal model names.
+        """
+        if not requested:
+            return self._model_name
+        if requested in self._tier_models:
+            resolved = self._tier_models[requested]
+            if not resolved:
+                msg = (
+                    f"DirectRunner: model tier {requested!r} has no model name — "
+                    "set the tier's model_env variable (see config/models.yaml)"
+                )
+                raise RuntimeError(msg)
+            return resolved
+        return requested
 
     async def run(self, agent: RunnerAgent, request: RequestSpec) -> AgentResponse:
         """Send the request to the configured OpenAI-compatible endpoint."""
@@ -106,11 +139,10 @@ class DirectRunner(AgentRunner):
         base_url = _resolve_env(self._base_url_env).rstrip("/")
 
         request_body = self._encoder.encode(request)
-        # The request's model (the agent's per-agent override) takes
-        # precedence over the runner-level default when present. Note:
-        # known issue — the agent's model is a config tier (e.g.
-        # "premium"), sent as-is; tier resolution is future work.
-        request_body["model"] = request.model or self._model_name
+        # The request's model (the agent's per-agent tier or literal
+        # override) takes precedence over the runner-level default; tier
+        # names resolve through the tier_models mapping.
+        request_body["model"] = self._resolve_model(request.model)
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",

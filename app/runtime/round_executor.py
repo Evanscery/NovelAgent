@@ -60,7 +60,7 @@ the director agent is called (single-shot, no tool-call loop).
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 from app.agents.agent import Agent
@@ -291,8 +291,10 @@ class RoundExecutor:
         # tool args, but the simple loop treats all call_agent targets
         # as depth-1 children.
         director_depth = 0
+        iteration = 0
 
         while True:
+            iteration += 1
             # Budget check: consume one iteration for this director turn.
             if self._budget.is_exhausted():
                 finalize_reason = "budget_exhausted"
@@ -319,7 +321,20 @@ class RoundExecutor:
                 break
 
             director_text = response.text
-            history.append(Message(role="assistant", content=response.text))
+            # Every tool call needs an id so the assistant message and its
+            # follow-up tool messages correlate (OpenAI protocol). Providers
+            # assign ids; runners that don't (mock) get deterministic ones.
+            tool_calls = [
+                tc if tc.id else replace(tc, id=f"call_{iteration}_{i}")
+                for i, tc in enumerate(response.tool_calls, start=1)
+            ]
+            history.append(
+                Message(
+                    role="assistant",
+                    content=response.text,
+                    tool_calls=tuple(tool_calls) or None,
+                )
+            )
             tokens = response.usage.prompt_tokens + response.usage.completion_tokens
             total_tokens += tokens
             if "director" not in completed:
@@ -338,13 +353,13 @@ class RoundExecutor:
 
             # No tool calls -> director produced a plain-text answer.
             # The round ends (nothing more to dispatch).
-            if not response.tool_calls:
+            if not tool_calls:
                 break
 
             # Dispatch each tool call. If any is `finalize`, the round
             # ends immediately after processing the batch.
             finalized = False
-            for tc in response.tool_calls:
+            for tc in tool_calls:
                 # Budget may have been exhausted mid-batch by a prior
                 # tool call's consume; check before each dispatch.
                 if self._budget.is_exhausted():

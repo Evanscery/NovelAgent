@@ -121,14 +121,15 @@ class TestRoundStatus:
         body = status_resp.json()  # type: ignore[possibly-undefined]
         assert body["round_id"] == round_id
         assert body["state"] == "completed"
-        # With the RoundExecutor tool-call loop, the MockRunner director
-        # returns plain text (no tool_calls) → the round completes after
-        # one director turn with completed_agents == ["director"] and
-        # finalize_reason == "all_nodes_done". A real LLM director would
-        # emit call_agent tool calls to dispatch the workflow's sub-agents.
+        # The scripted MockRunner walks the whole flow: the director
+        # dispatches each workflow agent via call_agent, then emits an
+        # explicit finalize — so a mock round exercises the same loop a
+        # real LLM director would.
         assert body["result"] is not None
-        assert "director" in body["result"]["completed_agents"]
-        assert body["result"]["finalize_reason"] == "all_nodes_done"
+        completed = body["result"]["completed_agents"]
+        assert "director" in completed
+        assert len(completed) > 1, f"sub-agents were not dispatched: {completed}"
+        assert body["result"]["finalize_reason"] == "explicit_finalize"
         assert body["result"]["total_tokens"] > 0
         assert body["error"] is None
 

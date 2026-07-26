@@ -83,6 +83,21 @@ class OpenAIChatEncoder:
                 entry["tool_call_id"] = message.tool_call_id
             if message.name is not None:
                 entry["name"] = message.name
+            if message.tool_calls:
+                # An assistant message must carry the tool_calls it emitted,
+                # otherwise the follow-up tool messages are rejected by
+                # OpenAI-compatible endpoints (orphan tool_call_id).
+                entry["tool_calls"] = [
+                    {
+                        "id": tc.id or f"call_{i}",
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.args, ensure_ascii=False),
+                        },
+                    }
+                    for i, tc in enumerate(message.tool_calls, start=1)
+                ]
             messages.append(entry)
 
         body: dict[str, object] = {"messages": messages}

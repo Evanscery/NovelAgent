@@ -24,6 +24,7 @@ from app.agents.tools import ToolSchema
 
 if TYPE_CHECKING:
     from app.agents.agent import Agent
+    from app.runtime.runners.base import ToolCall
 
 __all__ = [
     "Message",
@@ -47,12 +48,17 @@ class Message:
                       message answers (mirrors the OpenAI chat shape).
         name:         For ``tool`` messages: the tool name that produced
                       this result.
+        tool_calls:   For ``assistant`` messages: the tool calls the model
+                      emitted in this turn. Required by OpenAI-compatible
+                      endpoints — a ``tool`` message is only valid after an
+                      assistant message carrying the matching call id.
     """
 
     role: Role
     content: str
     tool_call_id: str | None = None
     name: str | None = None
+    tool_calls: tuple[ToolCall, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -93,6 +99,12 @@ class RequestSpec:
                     "content": m.content,
                     "tool_call_id": m.tool_call_id,
                     "name": m.name,
+                    "tool_calls": None
+                    if m.tool_calls is None
+                    else [
+                        {"id": tc.id, "name": tc.name, "args": tc.args}
+                        for tc in m.tool_calls
+                    ],
                 }
                 for m in self.messages
             ],

@@ -57,6 +57,11 @@ def build_runner(models: ModelsConfig, runtime: RuntimeConfig) -> AgentRunner:
                 f"{models.default_tier!r} model_env) is not set"
             )
             raise ValueError(msg)
+        # Tier name -> real model name (from each tier's model_env), so an
+        # agent's `model: premium` resolves instead of being sent verbatim.
+        tier_models: dict[str, str | None] = {
+            name: os.environ.get(t.model_env) or None for name, t in models.tiers.items()
+        }
         return DirectRunner(
             model_config={
                 "provider": tier.provider,
@@ -65,6 +70,7 @@ def build_runner(models: ModelsConfig, runtime: RuntimeConfig) -> AgentRunner:
                 "base_url_env": tier.base_url_env,
             },
             runtime_policy=dict(runtime.runner),
+            tier_models=tier_models,
         )
 
     msg = f"build_runner: unknown runner {models.runner!r} (expected 'mock' or 'direct')"
