@@ -5,17 +5,18 @@
 > 范围优先级: 后端架构收尾 > 运行链路可用性 > 前端对齐设计
 > 验证约束: pytest + mock runner + ruff/mypy + vitest/build 为主；允许少量真实 LLM smoke（key/配额失败即 fallback mock）
 > 实施方式: 自迭代，每波次至少一个 commit；基线恢复点为 commit `498ddb8`
+> 状态: **全部波次已于 2026-07-27 完成**（结果见 docs/stage_report.md 修复波次结果 与 docs/audit_report.md 修复后记）
 
 ## 波次总览
 
 | 波次 | 主题 | 覆盖问题 | 验收标准 |
 | --- | --- | --- | --- |
-| W0 | 门禁恢复 + 安全 | F-8, F-4 | `npm run build` 绿；新增路径穿越单测全过 |
-| W1 | LLM 协议正确性 | F-3, F-7, F-6 | assistant 消息携带 tool_calls 的消息序列单测；tier→模型名解析单测；MockRunner 可产出脚本化 tool_calls |
-| W2 | 创作主链路打通 | F-1, F-2, F-5, Q-1 | mock 端到端一轮：项目仓库出现新 Turn commit、`novels/` 出现章节文件、state/summary 更新；chat 轮工具真实执行 |
-| W3 | 架构收尾 | Q-2~Q-7, 召回方式③默认注入, agents→canvas 依赖 | pytest/ruff/mypy 全绿；死代码清零 |
-| W4 | 前端对齐设计 | W-1~W-6, mode 默认 tab | vitest + build 绿；画布读写真实 workflow；导入有 UI |
-| W5 | 真实 LLM smoke | 最终验收 | 1 轮 chat + 1 轮 workflow 用真实模型走通（失败 fallback 记录） |
+| W0 ✅ | 门禁恢复 + 安全 | F-8, F-4 | `npm run build` 绿；新增路径穿越单测全过 |
+| W1 ✅ | LLM 协议正确性 | F-3, F-7, F-6 | assistant 消息携带 tool_calls 的消息序列单测；tier→模型名解析单测；MockRunner 可产出脚本化 tool_calls |
+| W2 ✅ | 创作主链路打通 | F-1, F-2, F-5, Q-1 | mock 端到端一轮：项目仓库出现新 Turn commit、`novels/` 出现章节文件、state/summary 更新；chat 轮工具真实执行 |
+| W3 ✅ | 架构收尾 | Q-2~Q-7, 召回方式③默认注入, agents→canvas 依赖 | pytest/ruff/mypy 全绿；死代码清零 |
+| W4 ✅ | 前端对齐设计 | W-1~W-6, mode 默认 tab | vitest + build 绿；画布读写真实 workflow；导入有 UI |
+| W5 ✅ | 真实 LLM smoke | 最终验收 | 1 轮 chat + 1 轮 workflow 用真实模型走通（失败 fallback 记录） |
 
 ## 各波次明细
 

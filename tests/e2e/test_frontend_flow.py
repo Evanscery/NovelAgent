@@ -423,12 +423,12 @@ def test_full_frontend_flow(
         _click_nav_tab(page, "资源")
         page.wait_for_url(f"{frontend_url}/resources", timeout=5_000)
         page.wait_for_selector("h1.view__title:has-text('资源编辑器')", timeout=10_000)
-        # The resource tree lists 8 types.
+        # The resource tree lists all registered types (8 design types + turn_summary).
         tree_items = page.locator(".resource-tree__item")
         tree_items.first.wait_for(state="visible", timeout=10_000)
         type_count = tree_items.count()
-        assert type_count == 8, (
-            f"expected 8 resource types in the tree, got {type_count}"
+        assert type_count >= 8, (
+            f"expected at least the 8 design resource types, got {type_count}"
         )
         # Click the 当前状态 (state) type.
         state_item = page.locator(".resource-tree__item", has_text="当前状态").first

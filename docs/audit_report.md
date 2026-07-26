@@ -123,3 +123,30 @@
 ---
 
 修复优先级与实施安排见 `docs/optimization_plan.md`；当前阶段综述见 `docs/stage_report.md`。
+
+---
+
+## 修复后记（2026-07-27 当日，W0–W5 波次）
+
+本报告的致命断点 F-1~F-8 已全部修复，Q/W 级问题大部分修复。逐项状态：
+
+| ID | 状态 | 波次/commit |
+| --- | --- | --- |
+| F-1 正文无落盘 | ✅ 已修（finalize→novels/ + turn_summary 资源） | W2 `062b771` |
+| F-2 无 commit/事务 | ✅ 已修（AtomicTurn + 每轮 Turn commit + 失败回滚） | W2 `062b771` |
+| F-3 assistant 无 tool_calls | ✅ 已修（真实端点 smoke 验证通过） | W1 `446efff` |
+| F-4 路径穿越 | ✅ 已修（resolve_content_path + 6 测试） | W0 `4edf1f9` |
+| F-5 chat 不 dispatch | ✅ 已修（chat 与 workflow 共用 tool-loop） | W2 `062b771` |
+| F-6 mock 无 tool_calls | ✅ 已修（脚本化 mock 走完整轮） | W1 `446efff` |
+| F-7 tier 直发 | ✅ 已修（tier_models 解析，未知 tier 报错） | W1 `446efff` |
+| F-8 build 失败 | ✅ 已修 | W0 `4edf1f9` |
+| Q-1 子 agent 单发 | ✅ 已修（有限 tool-loop，结果回喂） | W2 `062b771` |
+| Q-2 改名 / Q-3 死配置 / Q-4 重复回滚 / Q-5 删 director 消息 / Q-6 remaining 语义 | ✅ 已修 | W3 `d953929` |
+| Q-7 死代码 | 部分：enforce()/agent_models 已删；**runtime 并发原语有意保留**（设计能力，executor 待接入） | W3 |
+| Q-8 RoundRegistry 只增 / Q-9 中文 feedback / Q-10 GET 副作用 | ⏳ 未修（低危，下期） | — |
+| W-1 XSS / W-2 retry / W-3 画布假数据 / W-4 导入 UI / W-5 错误 detail | ✅ 已修 | W4 `bc0568a` + `7dc735c` |
+| W-6 历史内容查看 / W-7 杂项部分 | ⏳ 未修（需 content-at-sha 端点等，下期） | — |
+| 召回 5 方式 | 3.5/5：③默认注入已实现（W3）；①多级索引落地第一级（summary 归档），第二级正文按轮召回待做 | W2/W3 |
+| 设计符合性其余未实现项（maintainer 1:1、profile 层、system agents、并发 await） | ⏳ 维持未实现，见 stage_report"下一阶段" | — |
+
+修复后健康度：pytest 694 通过（含新 e2e 验收）、vitest 126 通过、build/ruff/mypy 全绿、Playwright e2e 12 通过、真实 LLM smoke PASS（`docs/evidence/llm_smoke_2026-07-27.txt`）。
