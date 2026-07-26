@@ -8,7 +8,7 @@ round and :func:`stop_session` to cancel it.
 
 This keeps the Runtime layer's internal construction details inside the
 Runtime layer — the API layer never imports ``Runtime``, ``BudgetTracker``,
-``RoundExecutor``, or ``build_default_registry`` directly.
+``RoundExecutor``, or ``build_project_registry`` directly.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.agents.agent import Agent
-from app.agents.registry import AgentRegistry, build_default_registry
+from app.agents.registry import AgentRegistry, build_project_registry
 from app.agents.tree_model import AGENT_KIND
 from app.agents.workflow import WorkflowTree
 from app.runtime.budget import BudgetTracker
@@ -80,12 +80,13 @@ def create_round_session(
 ) -> RoundSession:
     """Construct a fully-wired :class:`RoundSession` without starting execution.
 
-    Builds the default registry, Runtime, BudgetTracker, and RoundExecutor.
-    The caller decides when to start execution via :func:`run_session`.
+    Builds the project registry (builtins + per-project overrides),
+    Runtime, BudgetTracker, and RoundExecutor. The caller decides when
+    to start execution via :func:`run_session`.
 
     Args:
-        project_path: Path to the project workspace (unused by components
-            currently, but reserved for future per-project config loading).
+        project_path: Path to the project workspace; per-project agent
+            overrides are loaded from ``<project_path>/agents/*.yaml``.
         project_id: Project identifier for logging / record-keeping.
         context: Context string passed to ``execute_round``.
         tree: The :class:`WorkflowTree` for workflow mode; ``None`` for chat mode.
@@ -101,7 +102,10 @@ def create_round_session(
         A :class:`RoundSession` in ``"pending"`` state, ready for
         :func:`run_session`.
     """
-    agent_registry = build_default_registry()
+    # Builtins + per-project overrides: an agent overridden in the
+    # project's agents/ dir takes effect on the run path, not only on
+    # the config surface.
+    agent_registry = build_project_registry(project_path)
     # Register embedded agent definitions from an imported tree so the
     # workflow is portable: the tree carries its own definitions (keyed
     # "kind:id"), and the recipient's registry is populated from those

@@ -33,7 +33,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi import Path as FastPath
 
 from app.agents.agent import Agent
-from app.agents.registry import AgentRegistry, build_default_registry
+from app.agents.registry import AgentRegistry, build_project_registry
 from app.api.schemas import (
     AgentConfigResponse,
     ConfigResponse,
@@ -153,39 +153,17 @@ def _agent_to_response(agent: Agent) -> AgentConfigResponse:
 def _load_project_registry(project_path: Path) -> AgentRegistry:
     """Build an :class:`AgentRegistry` for *project_path*.
 
-    Loads the built-in agents first, then overlays any per-project
-    override files in ``workspaces/<id>/agents/*.yaml``. Per-agent yamls
-    without a ``tools:`` field inherit the cached
-    ``config/agents.yaml`` default (see
-    :func:`app.agents.agent.get_default_tools`).
+    Delegates to :func:`app.agents.registry.build_project_registry`
+    (builtins + per-project overrides), translating validation errors
+    into HTTP 500 responses.
     """
-    registry = build_default_registry()
-    override_dir = project_path / "agents"
-    if override_dir.is_dir():
-        for yaml_path in sorted(override_dir.glob("*.yaml")):
-            raw = _read_yaml(yaml_path)
-            if not raw:
-                continue
-            try:
-                agent = _dict_to_agent(raw)
-            except (ValueError, TypeError) as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Project agent override {yaml_path!s} is invalid: {exc}",
-                ) from exc
-            registry.register(agent, replace=True)
-    return registry
-
-
-def _dict_to_agent(raw: dict[str, Any]) -> Agent:
-    """Build an :class:`Agent` from a yaml dict.
-
-    Delegates to :meth:`Agent.from_dict` (the single load-path
-    constructor). An explicit ``id`` is required -- there is no
-    file-stem fallback, because relying on a file name as identity
-    makes shared agents ambiguous (per refactor_guide:63).
-    """
-    return Agent.from_dict(raw, source="project agent override")
+    try:
+        return build_project_registry(project_path)
+    except (ValueError, TypeError, yaml.YAMLError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Project agent override is invalid: {exc}",
+        ) from exc
 
 
 # ── Global config ────────────────────────────────────────────────────────

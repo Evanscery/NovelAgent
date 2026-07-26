@@ -200,8 +200,45 @@ def build_default_registry() -> AgentRegistry:
     return registry
 
 
+def build_project_registry(project_path: Path) -> AgentRegistry:
+    """Build a registry for *project_path*: builtins + per-project overrides.
+
+    Loads the built-in agents first, then overlays any per-project
+    override files in ``<project_path>/agents/*.yaml`` (``replace=True``,
+    so an override sharing a builtin's id wins). Override yamls without
+    a ``tools:`` field inherit the cached ``config/agents.yaml`` default
+    (see :func:`app.agents.agent.get_default_tools`).
+
+    This is the single project-scoped registry constructor: both the API
+    config surface and the runtime round-session factory use it, so an
+    agent overridden in a project takes effect on the run path too.
+
+    Raises:
+        ValueError: If an override file is not a mapping or fails
+            :meth:`Agent.from_dict` validation.
+    """
+    registry = build_default_registry()
+    override_dir = project_path / "agents"
+    if override_dir.is_dir():
+        paths = sorted(override_dir.glob("*.yaml")) + sorted(override_dir.glob("*.yml"))
+        for yaml_path in paths:
+            raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+            if raw is None:
+                continue
+            if not isinstance(raw, dict):
+                msg = (
+                    f"project agent override {yaml_path!s}: expected a mapping "
+                    f"at top level, got {type(raw).__name__}"
+                )
+                raise ValueError(msg)
+            agent = Agent.from_dict(raw, source=f"project agent override {yaml_path!s}")
+            registry.register(agent, replace=True)
+    return registry
+
+
 __all__ = [
     "AgentRegistry",
     "build_default_registry",
+    "build_project_registry",
     "load_workflow",
 ]

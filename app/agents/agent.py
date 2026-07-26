@@ -171,7 +171,8 @@ class Agent:
         """Construct an :class:`Agent` from a yaml-style attribute dict.
 
         This is the single load-path constructor used by the registry
-        (``_load_agent_yaml``), the API config route (``_dict_to_agent``),
+        (``_load_agent_yaml``), the project override loader
+        (``build_project_registry``),
         and workflow-tree import (embedded agent definitions). It enforces
         the rigorous id invariant (per refactor_guide:63 ``id`` is the
         control identifier, not a display label): an explicit, well-formed

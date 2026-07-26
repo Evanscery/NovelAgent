@@ -9,8 +9,10 @@ round's registry; malformed definitions are skipped with a warning
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import pytest
+import yaml
 
 from app.agents.tree_model import AGENT_KIND, NodeDefinition, TreeNode, WorkflowTree
 from app.runtime.session import create_round_session
@@ -41,7 +43,7 @@ def _agent_payload(agent_id: str, name: str) -> dict[str, object]:
 
 class TestImportedDefinitionRegistration:
     def test_valid_definition_registered_malformed_skipped_with_warning(
-        self, tmp_path: object, caplog: pytest.LogCaptureFixture
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         valid = NodeDefinition(
             kind=AGENT_KIND,
@@ -56,11 +58,9 @@ class TestImportedDefinitionRegistration:
         )
         tree = _make_tree({valid.key: valid, malformed.key: malformed})
 
-        from pathlib import Path
-
         with caplog.at_level(logging.WARNING, logger="app.runtime.session"):
             session = create_round_session(
-                project_path=Path(str(tmp_path)),
+                project_path=tmp_path,
                 project_id="proj-1",
                 context="ctx",
                 tree=tree,
@@ -76,13 +76,11 @@ class TestImportedDefinitionRegistration:
         # The malformed definition produced a warning, not silence.
         assert any("agent:broken-agent" in message for message in caplog.messages)
 
-    def test_non_agent_kind_definitions_are_ignored(self, tmp_path: object) -> None:
-        from pathlib import Path
-
+    def test_non_agent_kind_definitions_are_ignored(self, tmp_path: Path) -> None:
         tool_def = NodeDefinition(kind="tool", id="some-tool", payload={"whatever": 1})
         tree = _make_tree({tool_def.key: tool_def})
         session = create_round_session(
-            project_path=Path(str(tmp_path)),
+            project_path=tmp_path,
             project_id="proj-1",
             context="ctx",
             tree=tree,
@@ -91,3 +89,74 @@ class TestImportedDefinitionRegistration:
         )
         with pytest.raises(KeyError):
             session.registry.get("some-tool")
+
+
+class TestProjectAgentOverrides:
+    def test_project_override_reaches_round_registry(self, tmp_path: Path) -> None:
+        """An agent overridden in <project>/agents/*.yaml is the one the
+        round session's registry resolves (run path honors overrides)."""
+        project = tmp_path
+        agents_dir = project / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "writer.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "id": "writer",
+                    "name": "writer",
+                    "task": "OVERRIDDEN TASK",
+                    "input": "i",
+                    "output": "o",
+                    "permission": {"read": ["state"], "write": []},
+                },
+                allow_unicode=True,
+            ),
+            encoding="utf-8",
+        )
+
+        session = create_round_session(
+            project_path=project,
+            project_id="proj-1",
+            context="ctx",
+            tree=None,
+            max_iterations=None,
+            maximal_recursive_calling_depth=None,
+        )
+        assert session.registry.get("writer").task == "OVERRIDDEN TASK"
+
+    def test_imported_tree_definition_wins_over_project_override(
+        self, tmp_path: Path
+    ) -> None:
+        """A portable workflow's embedded definition registers after the
+        project override, so the imported tree's own node definitions win."""
+        project = tmp_path
+        agents_dir = project / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "writer.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "id": "imported-writer",
+                    "name": "writer",
+                    "task": "PROJECT OVERRIDE",
+                    "input": "i",
+                    "output": "o",
+                    "permission": {"read": ["state"], "write": []},
+                }
+            ),
+            encoding="utf-8",
+        )
+        definition = NodeDefinition(
+            kind=AGENT_KIND,
+            id="imported-writer",
+            payload=_agent_payload("imported-writer", "writer"),
+        )
+        tree = _make_tree({definition.key: definition})
+
+        session = create_round_session(
+            project_path=project,
+            project_id="proj-1",
+            context="ctx",
+            tree=tree,
+            max_iterations=None,
+            maximal_recursive_calling_depth=None,
+        )
+        assert session.registry.get("imported-writer").task == "imported task"
