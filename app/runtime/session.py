@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.agents.registry import AgentRegistry, build_default_registry
+from app.agents.agent import Agent
+from app.agents.tree_model import AGENT_KIND
 from app.agents.workflow import WorkflowTree
 from app.runtime.budget import BudgetTracker
 from app.runtime.round_executor import RoundExecutor, RoundResult
@@ -99,6 +101,25 @@ def create_round_session(
         :func:`run_session`.
     """
     agent_registry = build_default_registry()
+    # Register embedded agent definitions from an imported tree so the
+    # workflow is portable: the tree carries its own definitions (keyed
+    # "kind:id"), and the recipient's registry is populated from those
+    # definitions rather than relying on name-mapping.
+    if tree is not None and tree.definitions:
+        for node_def in tree.definitions.values():
+            if node_def.kind != AGENT_KIND:
+                continue
+            try:
+                agent = Agent.from_dict(
+                    node_def.payload, source=f"imported definition {node_def.key}"
+                )
+                agent_registry.register(agent, replace=True)
+            except (ValueError, TypeError) as exc:
+                logger.warning(
+                    "create_round_session: skipping imported definition %s: %s",
+                    node_def.key,
+                    exc,
+                )
     runtime = Runtime(
         {
             "timeout_seconds": 600,
