@@ -44,7 +44,7 @@ def load_workflow(path: str | Path) -> WorkflowTree:
     if "root_id" in data:
         return WorkflowTree.from_dict(data)
     if "nodes" in data and "wires" in data:
-        canvas = _canvas_from_dict(data)
+        canvas = canvas_from_dict(data)
         return parse_canvas_to_tree(canvas)
     msg = (
         "load_workflow: expected 'root_id' (tree format) or 'nodes'+'wires' "
@@ -63,20 +63,20 @@ def load_default_workflow() -> WorkflowTree:
     return load_workflow(Path(__file__).resolve().parent / "default_workflow.yaml")
 
 
-def _canvas_from_dict(data: dict[str, object]) -> CanvasGraph:
-    """Build a :class:`CanvasGraph` from a canvas-format dict."""
+def canvas_from_dict(data: dict[str, object]) -> CanvasGraph:
+    """Build a :class:`CanvasGraph` from a canvas-format dict (public API for routes)."""
     nodes_data = data.get("nodes", [])
     wires_data = data.get("wires", [])
     if not isinstance(nodes_data, list):
-        msg = f"_canvas_from_dict: 'nodes' must be a list, got {type(nodes_data).__name__}"
+        msg = f"canvas_from_dict: 'nodes' must be a list, got {type(nodes_data).__name__}"
         raise ValueError(msg)
     if not isinstance(wires_data, list):
-        msg = f"_canvas_from_dict: 'wires' must be a list, got {type(wires_data).__name__}"
+        msg = f"canvas_from_dict: 'wires' must be a list, got {type(wires_data).__name__}"
         raise ValueError(msg)
     nodes: list[CanvasNode] = []
     for n in nodes_data:
         if not isinstance(n, dict):
-            msg = f"_canvas_from_dict: node entry must be a dict, got {type(n).__name__}"
+            msg = f"canvas_from_dict: node entry must be a dict, got {type(n).__name__}"
             raise ValueError(msg)
         nodes.append(
             CanvasNode(
@@ -89,7 +89,7 @@ def _canvas_from_dict(data: dict[str, object]) -> CanvasGraph:
     wires: list[CanvasWire] = []
     for w in wires_data:
         if not isinstance(w, dict):
-            msg = f"_canvas_from_dict: wire entry must be a dict, got {type(w).__name__}"
+            msg = f"canvas_from_dict: wire entry must be a dict, got {type(w).__name__}"
             raise ValueError(msg)
         wires.append(
             CanvasWire(

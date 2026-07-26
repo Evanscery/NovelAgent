@@ -425,3 +425,76 @@ class TestWorkflowExportImport:
         resp = client.get(f"/api/workflow/{project}/export")
         assert resp.status_code == 422
         assert "no-such-agent" in resp.json()["detail"]
+
+
+# -- GET/PUT /api/workflow/{project_id}/canvas -----------------------------
+
+
+class TestCanvasEndpoints:
+    def test_get_canvas_returns_default_when_no_workflow(
+        self, client: TestClient, project_id: str, app_root: Path
+    ) -> None:
+        # scaffold copies the default workflow into the project; remove it
+        # to exercise the fallback path.
+        wf = app_root / "workspaces" / project_id / "workflow.yaml"
+        if wf.exists():
+            wf.unlink()
+        resp = client.get(f"/api/workflow/{project_id}/canvas")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        names = {n["agent_name"] for n in body["nodes"]}
+        assert {"recaller", "scout", "writer", "critic", "maintainer"} <= names
+
+    def test_put_canvas_roundtrips(self, client: TestClient, project_id: str) -> None:
+        graph = {
+            "nodes": [
+                {"id": "a", "agent_name": "writer", "description": "写", "params": {}},
+                {"id": "b", "agent_name": "critic", "description": "评", "params": {}},
+            ],
+            "wires": [{"from_node": "a", "to_node": "b", "repeat_count": 1}],
+        }
+        put = client.put(f"/api/workflow/{project_id}/canvas", json=graph)
+        assert put.status_code == 200, put.text
+        got = client.get(f"/api/workflow/{project_id}/canvas").json()
+        assert {n["id"] for n in got["nodes"]} == {"a", "b"}
+        assert got["wires"][0]["from_node"] == "a"
+
+    def test_put_canvas_rejects_cycle(self, client: TestClient, project_id: str) -> None:
+        graph = {
+            "nodes": [
+                {"id": "a", "agent_name": "writer", "description": "", "params": {}},
+                {"id": "b", "agent_name": "critic", "description": "", "params": {}},
+            ],
+            "wires": [
+                {"from_node": "a", "to_node": "b", "repeat_count": 1},
+                {"from_node": "b", "to_node": "a", "repeat_count": 1},
+            ],
+        }
+        resp = client.put(f"/api/workflow/{project_id}/canvas", json=graph)
+        assert resp.status_code == 422
+
+    def test_saved_canvas_drives_the_round(
+        self, client: TestClient, project_id: str, app_root: Path
+    ) -> None:
+        """PUT canvas → the next round runs the saved workflow, not the default."""
+        graph = {
+            "nodes": [{"id": "solo", "agent_name": "writer", "description": "只写", "params": {}}],
+            "wires": [],
+        }
+        assert client.put(f"/api/workflow/{project_id}/canvas", json=graph).status_code == 200
+        run = client.post(f"/api/workflow/{project_id}/run", json={})
+        assert run.status_code == 202
+        round_id = run.json()["round_id"]
+        import time as _time
+
+        for _ in range(60):
+            status_body = client.get(
+                f"/api/workflow/{project_id}/round/{round_id}"
+            ).json()
+            if status_body["state"] in ("completed", "failed"):
+                break
+            _time.sleep(0.05)
+        assert status_body["state"] == "completed", status_body
+        completed = status_body["result"]["completed_agents"]
+        assert "writer" in completed
+        assert "critic" not in completed

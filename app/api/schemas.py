@@ -93,6 +93,35 @@ class ProjectListResponse(BaseModel):
 from app.data.message_store import ChatMessage, ChatMessageRole  # noqa: E402
 
 
+class CanvasNodeModel(BaseModel):
+    """One canvas node (mirrors app.canvas.canvas_model.CanvasNode)."""
+
+    id: str
+    agent_name: str
+    description: str = ""
+    params: dict[str, object] = Field(default_factory=dict)
+
+
+class CanvasWireModel(BaseModel):
+    """One canvas wire (mirrors app.canvas.canvas_model.CanvasWire)."""
+
+    from_node: str
+    to_node: str
+    repeat_count: int = Field(default=1, ge=1)
+
+
+class CanvasGraphModel(BaseModel):
+    """GET/PUT /api/workflow/{project_id}/canvas payload.
+
+    The canvas is the user-editable workflow definition — the same shape
+    stored in ``workspaces/<id>/workflow.yaml`` and edited by the canvas
+    view. (The portable tree format lives on /export and /import.)
+    """
+
+    nodes: list[CanvasNodeModel] = Field(default_factory=list)
+    wires: list[CanvasWireModel] = Field(default_factory=list)
+
+
 class RunWorkflowRequest(BaseModel):
     """POST /api/workflow/{project_id}/run body.
 

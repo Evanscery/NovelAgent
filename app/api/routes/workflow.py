@@ -47,12 +47,19 @@ from app.agents.registry import build_project_registry
 from app.agents.workflow import WorkflowTree
 from app.api.routes._deps import ProjectIdPath, RootDep, resolve_project
 from app.api.schemas import (
+    CanvasGraphModel,
     RoundResultSummary,
     RoundState,
     RoundStatusResponse,
     RunWorkflowRequest,
 )
-from app.canvas.workflow_loader import load_default_workflow, load_workflow
+from app.canvas import workflow_loader as canvas_loader
+from app.canvas.compile import parse_canvas_to_tree
+from app.canvas.workflow_loader import (
+    canvas_from_dict,
+    load_default_workflow,
+    load_workflow,
+)
 from app.config_loader import ConfigLoader
 from app.runtime.runner_factory import build_runner
 from app.runtime.runners.base import AgentRunner
@@ -196,6 +203,53 @@ async def _run_round_background(session: RoundSession) -> None:
 
 
 # -- Routes ------------------------------------------------------------------
+
+
+@router.get("/{project_id}/canvas", response_model=CanvasGraphModel)
+def get_canvas(project_id: ProjectIdPath, root: RootDep) -> CanvasGraphModel:
+    """Return the project's editable workflow canvas (nodes + wires).
+
+    Reads ``workspaces/<id>/workflow.yaml``; when the project has no
+    workflow file the built-in default canvas is returned, so the canvas
+    view always shows the workflow a round would actually run.
+    """
+    project_path = resolve_project(root, project_id)
+    wf_path = project_path / "workflow.yaml"
+    data: object = None
+    if wf_path.exists():
+        data = yaml.safe_load(wf_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or "nodes" not in data:
+        # Fall back to the shipped default canvas.
+        default_file = Path(canvas_loader.__file__).resolve().parent / "default_workflow.yaml"
+        data = yaml.safe_load(default_file.read_text(encoding="utf-8"))
+    return CanvasGraphModel.model_validate(data)
+
+
+@router.put("/{project_id}/canvas", response_model=CanvasGraphModel)
+def put_canvas(
+    project_id: ProjectIdPath,
+    req: CanvasGraphModel,
+    root: RootDep,
+) -> CanvasGraphModel:
+    """Save the project's workflow canvas.
+
+    The canvas is validated by compiling it (topology check + feedback
+    unrolling); an invalid graph returns 422 and nothing is written.
+    """
+    project_path = resolve_project(root, project_id)
+    data = req.model_dump()
+    try:
+        canvas = canvas_from_dict(data)
+        parse_canvas_to_tree(canvas)
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid canvas: {exc}",
+        ) from exc
+    (project_path / "workflow.yaml").write_text(
+        yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    return req
 
 
 @router.post(
