@@ -1,4 +1,4 @@
-"""Parse agent tool-call requests, dispatch to the tool surface, reject overreach.
+"""Dispatch agent tool calls to the tool surface, reject overreach.
 
 Dispatch is catalog-driven, in order:
 
@@ -20,8 +20,6 @@ handle it at the appropriate layer.
 
 from __future__ import annotations
 
-import json
-import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -100,86 +98,15 @@ class UnknownToolError(Exception):
     """Raised when an agent calls a tool not in the allowed set."""
 
 
-# ── parsing ────────────────────────────────────────────────────────────────
-
-# Preferred format: a fenced code block tagged ``tool`` containing a JSON
-# object with ``name`` and ``args`` keys, e.g.::
-#
-#     ```tool
-#     {"name": "read", "args": {"resource_type": "state"}}
-#     ```
-_JSON_TOOL_BLOCK_RE = re.compile(
-    r"```tool\s*\n(.*?)\n```",
-    re.DOTALL,
-)
-
-# Fallback format: a line ``TOOL: name(args)`` where ``args`` is a
-# comma-separated list of bare words or ``key=value`` pairs, e.g.::
-#
-#     TOOL: read(state)
-#     TOOL: write(short_goal, chapter_01.md, Once upon a time...)
-#     TOOL: grep_lines(resource_type=worldbook, query=tavern)
-_TOOL_LINE_RE = re.compile(
-    r"^\s*TOOL:\s*([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)\s*$",
-    re.MULTILINE,
-)
-
-
-def _parse_tool_line_args(raw: str) -> dict[str, object]:
-    """Parse the positional/key=value args from a ``TOOL: name(...)`` line.
-
-    Bare words become positional args keyed by their 1-based index
-    (``"1"``, ``"2"``, …) so a caller like ``read(state)`` still surfaces
-    its argument. ``key=value`` pairs are keyed by ``key``. Values are
-    not type-coerced — they stay strings, matching the simple format's
-    contract. Callers needing typed args should use the JSON block.
-    """
-    if not raw.strip():
-        return {}
-    args: dict[str, object] = {}
-    for i, piece in enumerate(_split_top_level(raw), start=1):
-        token = piece.strip()
-        if not token:
-            continue
-        if "=" in token:
-            key, _, value = token.partition("=")
-            args[key.strip()] = value.strip()
-        else:
-            args[str(i)] = token
-    return args
-
-
-def _split_top_level(text: str) -> list[str]:
-    """Split ``text`` on top-level commas, ignoring commas inside () or []."""
-    parts: list[str] = []
-    depth = 0
-    buf: list[str] = []
-    for ch in text:
-        if ch in "([{":
-            depth += 1
-            buf.append(ch)
-        elif ch in ")]}":
-            depth -= 1
-            buf.append(ch)
-        elif ch == "," and depth == 0:
-            parts.append("".join(buf))
-            buf = []
-        else:
-            buf.append(ch)
-    if buf:
-        parts.append("".join(buf))
-    return parts
-
-
 class ToolDispatcher:
-    """Parse agent output for tool calls and dispatch them to scoped tools.
+    """Dispatch parsed tool calls to the tool surface.
 
-    The dispatcher is the bridge between an agent's tool calls and the
-    tool surface. It owns *parsing* (two supported formats) and *routing*
-    (catalog impls first, then the scoped storage tools); it owns neither
-    permission enforcement (that is ``ScopedTools``' job) nor tool
-    implementation (that is the catalog's / ``app.runtime.tool_executor``'s
-    job).
+    The dispatcher is the bridge between an agent's tool calls (parsed
+    from the model response by the provider encoder) and the tool
+    surface. It owns *routing* (catalog impls first, then the scoped
+    storage tools); it owns neither permission enforcement (that is
+    ``ScopedTools``' job) nor tool implementation (that is the
+    catalog's / ``app.runtime.runtime_tools``'s job).
 
     Args:
         scoped_tools: The permission-scoped storage-tool surface.
@@ -191,48 +118,6 @@ class ToolDispatcher:
     def __init__(self, scoped_tools: ScopedTools, catalog: ToolCatalog | None = None) -> None:
         self._tools = scoped_tools
         self._catalog = catalog
-
-    # ── parsing ────────────────────────────────────────────────────────────
-
-    def parse_tool_call(self, agent_response_text: str) -> ToolCall | None:
-        """Extract a single :class:`ToolCall` from agent output.
-
-        Two formats are supported (JSON code block preferred, simple
-        parenthetical as fallback). Returns ``None`` when no tool call is
-        present. When both formats appear, the JSON block wins because it
-        carries typed args.
-        """
-        if not agent_response_text:
-            return None
-
-        # 1) Preferred: ```tool\n{...}\n``` JSON block.
-        m = _JSON_TOOL_BLOCK_RE.search(agent_response_text)
-        if m is not None:
-            payload = m.group(1).strip()
-            try:
-                obj = json.loads(payload)
-            except json.JSONDecodeError:
-                # Malformed JSON block — fall through to the simple format
-                # rather than silently returning None, so a fallback TOOL:
-                # line can still be honored.
-                obj = None
-            if isinstance(obj, dict):
-                name = obj.get("name")
-                raw_args = obj.get("args", {})
-                if isinstance(name, str) and isinstance(raw_args, dict):
-                    return ToolCall(
-                        name=name,
-                        args=dict[str, object](raw_args),
-                    )
-
-        # 2) Fallback: TOOL: name(arg, key=val, ...)
-        m = _TOOL_LINE_RE.search(agent_response_text)
-        if m is not None:
-            name = m.group(1)
-            args = _parse_tool_line_args(m.group(2))
-            return ToolCall(name=name, args=args)
-
-        return None
 
     # ── dispatch ───────────────────────────────────────────────────────────
 
@@ -263,12 +148,3 @@ class ToolDispatcher:
         )
         msg = f"Unknown tool: {name}. Legal tools: {', '.join(legal)}."
         raise UnknownToolError(msg)
-
-    # ── convenience ────────────────────────────────────────────────────────
-
-    def dispatch_from_text(self, agent_response_text: str) -> ToolResult | None:
-        """Parse + dispatch in one call. Returns ``None`` if no tool call."""
-        tool_call = self.parse_tool_call(agent_response_text)
-        if tool_call is None:
-            return None
-        return self.dispatch(tool_call)

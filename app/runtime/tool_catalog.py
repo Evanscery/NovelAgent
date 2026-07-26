@@ -22,7 +22,7 @@ import logging
 from collections.abc import Callable, Mapping, Sequence
 
 from app.agents.tools import BUILTIN_TOOL_SCHEMAS, ToolSchema
-from app.runtime.tool_executor import dice_roll
+from app.runtime.runtime_tools import dice_roll
 
 logger = logging.getLogger(__name__)
 

@@ -27,7 +27,7 @@ The loop::
         call_agent → resolve from registry, run sub-agent via runtime, store handle
         await      → return the stored sub-agent response text
         finalize   → end the round with reason "explicit_finalize"
-        read/write/list_files/glob_files/grep_lines/read_lines → dispatch to the director's ToolDispatcher (ScopedTools)
+        <other>    → dispatch to the director's ToolDispatcher (catalog impls, then ScopedTools)
         <unknown>  → record RejectedCallRecord("unknown_tool")
     ↓
     append each tool result to the history as a tool message
@@ -144,7 +144,7 @@ class RoundExecutor:
 
     The executor is constructed once per round with the runtime
     infrastructure (runtime, runner, registry, budget), the director's
-    scoped tools (for read/write/list_files/glob_files/grep_lines/read_lines dispatch), and the recursion
+    :class:`ToolDispatcher`, and the recursion
     depth limit. :meth:`execute_round` then drives the director in a
     tool-call loop: send prompt -> parse tool_calls -> dispatch ->
     feed back -> repeat until finalize.
@@ -163,7 +163,7 @@ class RoundExecutor:
                   Defaults to one backed by the default tool catalog.
         director_tools: The director's :class:`ToolDispatcher` (wrapping
                   a :class:`ScopedTools` with the director's permission)
-                  for dispatching read/write/list_files/glob_files/grep_lines/read_lines tool calls. May be
+                  for dispatching data/catalog tool calls. May be
                   ``None`` for chat-only rounds where the director has
                   no data tools.
         maximal_recursive_calling_depth: The max allowed
@@ -207,8 +207,8 @@ class RoundExecutor:
         sequence (so it knows the execution order) and the executor
         drives the tool-call loop: each director response's
         ``tool_calls`` are dispatched (``call_agent`` / ``await`` /
-        ``finalize`` / ``read`` / ``write`` / ``list_files`` / ``glob_files`` /
-        ``grep_lines`` / ``read_lines``), results are
+        ``finalize``, everything else via the director's
+        :class:`ToolDispatcher`), results are
         fed back, and the loop repeats until ``finalize`` or budget
         exhaustion.
 
@@ -464,10 +464,10 @@ class RoundExecutor:
         """Dispatch a single director tool call.
 
         Routes ``call_agent`` / ``await`` / ``finalize`` to the
-        executor's own handlers and ``read`` / ``write`` / ``list_files`` /
-        ``glob_files`` / ``grep_lines`` / ``read_lines``
-        to the director's :class:`ToolDispatcher`. Unknown tools are
-        recorded as rejected calls.
+        executor's own handlers; every other tool name goes to the
+        director's :class:`ToolDispatcher` (catalog impls such as
+        ``dice_roll`` first, then the scoped storage tools). Tools the
+        dispatcher does not recognise are recorded as rejected calls.
 
         Returns a :class:`_ToolDispatchOutcome` describing what happened
         (whether the round was finalized, which agent completed, token
@@ -496,22 +496,10 @@ class RoundExecutor:
         if name == "await":
             return self._dispatch_await(args, pending=pending, rejected_calls=rejected_calls)
 
-        # ── read / write / list_files / glob_files / grep_lines / read_lines: delegate to the director's tools ──
-        if name in ("read", "write", "list_files", "glob_files", "grep_lines", "read_lines"):
-            return self._dispatch_standard_tool(
-                tool_call,
-                rejected_calls=rejected_calls,
-            )
-
-        # ── unknown tool ──────────────────────────────────────────────
-        rejected_calls.append(
-            RejectedCallRecord(
-                agent="director",
-                reason=f"unknown_tool: {name}",
-            )
-        )
-        return _ToolDispatchOutcome(
-            feedback=f"[tool {name}] 拒绝: 未知工具",
+        # ── everything else: delegate to the director's ToolDispatcher ──
+        return self._dispatch_standard_tool(
+            tool_call,
+            rejected_calls=rejected_calls,
         )
 
     async def _dispatch_call_agent(

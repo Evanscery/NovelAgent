@@ -5,7 +5,7 @@ tools (dispatched to the data layer via ``ScopedTools``), the three
 director tools (``call_agent`` / ``await`` / ``finalize``, executed by
 the runtime's round executor itself), and ``dice_roll`` (a pure runtime
 tool). It contains no execution code — implementations live in the
-Runtime layer (``app.runtime.tool_executor`` and the round executor),
+Runtime layer (``app.runtime.runtime_tools`` and the round executor),
 keyed by the same names. The agent layer must not import the runtime
 layer.
 

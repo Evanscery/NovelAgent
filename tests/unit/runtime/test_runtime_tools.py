@@ -1,4 +1,4 @@
-"""Unit tests for runtime tool implementations (:mod:`app.runtime.tool_executor`).
+"""Unit tests for runtime tool implementations (:mod:`app.runtime.runtime_tools`).
 
 Covers the ``dice_roll`` runtime tool: notation parsing, explicit
 parameters, seed determinism, and ValueError on illegal input (runtime
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.runtime.tool_executor import dice_roll
+from app.runtime.runtime_tools import dice_roll
 
 
 class TestDiceRollNotation:

@@ -468,7 +468,11 @@ async def test_round_executor_rejects_unknown_tool(
     runtime = Runtime({"timeout_seconds": 5, "max_retries": 0, "max_concurrent": 3})
     budget = BudgetTracker(max_iterations=10, max_tokens=10_000, max_tool_calls=50)
 
-    executor = RoundExecutor(runtime, runner, registry, budget)
+    # Unknown-tool detection is owned by the ToolDispatcher, so the
+    # executor needs a real tool surface (as production wiring provides).
+    scoped = inject_into_tools(store, director.permission)
+    dispatcher = ToolDispatcher(cast(ScopedToolsProtocol, scoped))
+    executor = RoundExecutor(runtime, runner, registry, budget, director_tools=dispatcher)
     result = await executor.execute_round(director=director, tree=tree, context="test")
 
     # The unknown tool call was rejected.

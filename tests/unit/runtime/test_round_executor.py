@@ -36,6 +36,7 @@ from app.runtime.runners.base import (
 )
 from app.runtime.runners.mock_runner import MockRunner
 from app.runtime.runtime import Runtime
+from app.runtime.tool_catalog import build_default_catalog
 from app.runtime.tool_dispatcher import ScopedTools as ScopedToolsProtocol
 from app.runtime.tool_dispatcher import ToolDispatcher
 
@@ -419,6 +420,35 @@ async def test_standard_tool_write_dispatched_to_tool_dispatcher() -> None:
 
 
 @pytest.mark.asyncio
+async def test_dice_roll_dispatched_via_catalog() -> None:
+    """A ``dice_roll`` tool call reaches the catalog implementation through
+    the director's :class:`ToolDispatcher` — it is neither rejected as an
+    unknown tool nor routed to the scoped storage tools."""
+    director = _make_agent("director", tools=["dice_roll"])
+    registry = _make_registry(director)
+    tree = _make_tree()
+
+    scoped = _MockScopedTools()
+    dispatcher = ToolDispatcher(
+        cast(ScopedToolsProtocol, scoped), catalog=build_default_catalog()
+    )
+
+    runner = _ScriptedRunner(
+        director_batches=[
+            [ToolCall(name="dice_roll", args={"notation": "3d6+2", "seed": 7})],
+            [ToolCall(name="finalize", args={})],
+        ],
+    )
+    executor = _make_executor(registry, runner, director_tools=dispatcher)
+    result = await executor.execute_round(director=director, tree=tree, context="ctx")
+
+    assert result.finalize_reason == "explicit_finalize"
+    assert result.rejected_calls == []
+    # Handled by the catalog impl, not the scoped storage surface.
+    assert scoped.calls == []
+
+
+@pytest.mark.asyncio
 async def test_standard_tool_without_dispatcher_is_rejected() -> None:
     """When ``director_tools`` is None (no tool surface configured), a
     ``read`` tool call is rejected with a ``"no_tools_surface"`` reason."""
@@ -576,7 +606,7 @@ async def test_chat_mode_calls_director_once_no_loop() -> None:
 
 @pytest.mark.asyncio
 async def test_unknown_tool_recorded_as_rejected_call() -> None:
-    """A tool call with a name not in the allowed set is recorded as a
+    """A tool call the ToolDispatcher does not recognise is recorded as a
     rejected call with ``"unknown_tool"`` in the reason. The round
     continues and the director can finalize next turn."""
     director = _make_agent("director")
@@ -589,7 +619,8 @@ async def test_unknown_tool_recorded_as_rejected_call() -> None:
             [ToolCall(name="finalize", args={})],
         ],
     )
-    executor = _make_executor(registry, runner)
+    dispatcher = ToolDispatcher(cast(ScopedToolsProtocol, _MockScopedTools()))
+    executor = _make_executor(registry, runner, director_tools=dispatcher)
     result = await executor.execute_round(director=director, tree=tree, context="ctx")
 
     rejected = [r for r in result.rejected_calls if "unknown_tool" in r.reason]
