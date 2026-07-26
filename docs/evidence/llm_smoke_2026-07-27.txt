@@ -1,0 +1,10 @@
+W5 真实 LLM smoke 证据 (2026-07-27)
+model: MODEL_FAST (.env.local), endpoint: TEST_BASE_URL
+script: 1 chat round + 1 single-writer workflow round, DirectRunner
+
+CHAT state=completed reason=all_nodes_done tokens=693
+CHAT reply: '作为 director，我的职责是根据工作流进行决策与任务分配，通过调度子 agent 并根据其反馈控制创作流程的有序推进与最终落盘。'
+WF state=completed reason=explicit_finalize agents=['director', 'writer'] tokens=2469 rejected=[]
+WF chapters=['chapter_001.txt'] summaries=1 head='Turn 6b64d9d6: workflow round'
+WF chapter head: '昏黄的壁灯在狭窄的木架间投下摇曳的影，将旧书店染上一层静谧的暖色。窗外，连绵的雨声轻敲着老旧玻璃，世界仿佛只剩下这一处孤岛。空气中弥漫着陈年纸张特有的发霉气息，与潮湿的泥土味交织。指尖抚过泛黄扉页，唯有这份微凉的孤寂，在书香中慢慢沉淀。'
+PASS
