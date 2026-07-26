@@ -4,7 +4,7 @@ Covers todo 34 acceptance criteria:
 * card_front: parse_front_script, apply_front_script, render_front_widgets.
 * card_migration: load sample card -> infer_card_ir -> materialize ->
   8 resources scaffolded with correct content.
-* preset_extract: sample preset with "文风" section -> >=1 Skill returned.
+* preset_extract: sample preset with "文风" section -> >=1 PromptFragment returned.
 * /api/import: POST sample card -> 201 with project_id (wired test in
   tests/unit/api/test_import.py).
 * Compat-layer naming isolation: grep check (mirrors the plan's VERIFY).
@@ -13,8 +13,6 @@ Covers todo 34 acceptance criteria:
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -37,7 +35,7 @@ from app.compat.tavern_card.card_migration import (
     materialize_project_from_card,
 )
 from app.compat.tavern_card.preset_extract import (
-    extract_preset_skills,
+    extract_preset_fragments,
     normalize_preset_to_markdown,
 )
 from app.project_init import scaffold_project
@@ -459,31 +457,35 @@ class TestNormalizePresetToMarkdown:
         assert "无关内容" not in md
 
 
-class TestExtractPresetSkills:
-    def test_extracts_skills_from_markdown(self) -> None:
-        skills = extract_preset_skills(_SAMPLE_PRESET_MARKDOWN)
-        assert len(skills) >= 1
-        names = [s.name for s in skills]
-        assert any(n.startswith("style_") for n in names)
-        assert any(n.startswith("jailbreak_") for n in names)
+class TestExtractPresetFragments:
+    def test_extracts_fragments_from_markdown(self) -> None:
+        fragments = extract_preset_fragments(_SAMPLE_PRESET_MARKDOWN)
+        assert len(fragments) >= 1
+        kinds = [f.kind for f in fragments]
+        assert "style" in kinds
+        assert "jailbreak" in kinds
 
-    def test_extracts_skills_from_dict(self) -> None:
-        skills = extract_preset_skills(_SAMPLE_PRESET_DICT)
-        assert len(skills) >= 1
+    def test_extracts_fragments_from_dict(self) -> None:
+        fragments = extract_preset_fragments(_SAMPLE_PRESET_DICT)
+        assert len(fragments) >= 1
         # Both 文风 and jailbreak should be extracted.
-        names = [s.name for s in skills]
-        assert any(n.startswith("style_") for n in names)
-        assert any(n.startswith("jailbreak_") for n in names)
+        kinds = [f.kind for f in fragments]
+        assert "style" in kinds
+        assert "jailbreak" in kinds
+
+    def test_fragment_text_carries_section_body(self) -> None:
+        fragments = extract_preset_fragments(_SAMPLE_PRESET_MARKDOWN)
+        style = next(f for f in fragments if f.kind == "style")
+        assert style.text.strip()
 
     def test_no_matching_sections_returns_empty(self) -> None:
-        skills = extract_preset_skills("## 其他\n\n无关内容。\n")
-        assert skills == []
+        fragments = extract_preset_fragments("## 其他\n\n无关内容。\n")
+        assert fragments == []
 
-    def test_extracted_skill_names_are_stable(self) -> None:
-        # Same content -> same hash -> same name.
-        skills_a = extract_preset_skills(_SAMPLE_PRESET_MARKDOWN)
-        skills_b = extract_preset_skills(_SAMPLE_PRESET_MARKDOWN)
-        assert [s.name for s in skills_a] == [s.name for s in skills_b]
+    def test_extraction_is_deterministic(self) -> None:
+        assert extract_preset_fragments(
+            _SAMPLE_PRESET_MARKDOWN
+        ) == extract_preset_fragments(_SAMPLE_PRESET_MARKDOWN)
 
 
 # ── Compat-layer naming isolation (per D5) ──────────────────────────────

@@ -1,48 +1,89 @@
-"""Extract 文风 / jailbreak sections from a preset -> agent Skills (compat layer).
+"""Extract 文风 / jailbreak sections from a preset -> prompt fragments (compat layer).
 
-This is the **compat layer** half of preset skill extraction. Per
-``docs/refactor_guide.md:29`` the system "允许从 sillytavern 的预设提取用于
-agent 的 skill (文风/jailbreak 等)". The agent-layer seam
-(:func:`app.agents.skills.extract_skills_from_preset`) lives in
-``app/agents/skills.py`` and wraps extracted text as :class:`Skill` objects
-with stable, content-hashed names. This module is the **parser** half: it
-takes a raw SillyTavern preset (which may be JSON, YAML, or markdown with
-embedded sections) and reduces it to the canonical markdown-section form
-that the agent-layer seam already consumes.
+Per ``docs/refactor_guide.md:29`` the system "允许从 sillytavern 的预设提取
+用于 agent 的能力 (文风/jailbreak 等)". With the skill abstraction removed
+(a skill IS an agent), extraction is a **pure function of the compat
+layer**: it takes a raw SillyTavern preset (JSON, YAML, or markdown with
+embedded sections) and returns :class:`PromptFragment` objects — plain
+(kind, text) carriers a caller can inject into an agent's prompt (e.g.
+as ``head`` / ``tail``).
 
 Pipeline:
 
 1. :func:`normalize_preset_to_markdown` — accept JSON/YAML/markdown preset
    payloads and reduce to a markdown string with ``##``-level sections.
-2. :func:`extract_preset_skills` — call the normalizer, then delegate to
-   :func:`app.agents.skills.extract_skills_from_preset` to produce
-   ``list[Skill]``.
+2. :func:`extract_preset_fragments` — scan the markdown for style /
+   jailbreak sections and wrap each as a :class:`PromptFragment`.
 
-The split keeps SillyTavern preset-format knowledge in the compat layer
-(here) and the Skill abstraction in the agent layer (``app/agents/skills.py``)
-— the only import direction is ``compat -> agents``, never the reverse.
+This module depends on no other app layer (in particular, NOT on
+``app.agents``) — it is pure preset-format parsing.
+
+Note: folding extracted fragments into a materialized agent's
+``head`` / ``tail`` during card migration is deliberately NOT done here —
+extraction stays a pure function; composition is the caller's decision.
 
 Per decision D5, all SillyTavern naming converges to
-``app/compat/tavern_card/``. The agent-layer seam mentions "SillyTavern
-preset" in its docstring as the authoritative reference
-(``docs/refactor_guide.md:29``); that mention is intentional and points
-back here.
+``app/compat/tavern_card/``.
 """
 
 from __future__ import annotations
 
 import json
+import re
+from dataclasses import dataclass
 from typing import Any
 
 import yaml
 
-from app.agents.skills import Skill
-from app.agents.skills import extract_skills_from_preset as _seam_extract
-
 __all__ = [
-    "extract_preset_skills",
+    "PromptFragment",
+    "extract_preset_fragments",
     "normalize_preset_to_markdown",
 ]
+
+
+@dataclass(frozen=True)
+class PromptFragment:
+    """One extracted preset fragment.
+
+    Attributes:
+        kind: ``"style"`` (文风/写作风格) or ``"jailbreak"`` (越狱).
+        text: The section body — the directive text to inject into a
+              prompt.
+    """
+
+    kind: str
+    text: str
+
+
+# Markdown section headers recognised as extractable. The header text is
+# matched case-insensitively after stripping whitespace; both Chinese
+# (文风) and English (jailbreak / Jailbreak) forms are accepted.
+_PRESET_SECTION_RE: re.Pattern[str] = re.compile(
+    r"^##\s+(.+?)\s*$",
+    re.MULTILINE,
+)
+_STYLE_HEADERS: frozenset[str] = frozenset({"文风", "style", "写作风格"})
+_JAILBREAK_HEADERS: frozenset[str] = frozenset({"jailbreak", "越狱"})
+
+
+def _split_sections(preset_text: str) -> list[tuple[str, str]]:
+    """Split *preset_text* into ``[(header, body), ...]`` for ``##``-level sections.
+
+    The body of each section runs from the line after the header to the line
+    before the next ``##`` header (or end of text). ``#``-level (top-level)
+    and ``###``+ (deeper) headers are NOT section boundaries here — only
+    ``##`` sections are extractable sources.
+    """
+    sections: list[tuple[str, str]] = []
+    matches = list(_PRESET_SECTION_RE.finditer(preset_text))
+    for i, match in enumerate(matches):
+        header = match.group(1).strip()
+        body_start = match.end()
+        body_end = matches[i + 1].start() if i + 1 < len(matches) else len(preset_text)
+        body = preset_text[body_start:body_end].strip()
+        sections.append((header, body))
+    return sections
 
 # Recognised SillyTavern preset "section" keys when the preset is a JSON/YAML
 # mapping (the values are usually strings or lists of strings). Matched
@@ -72,9 +113,9 @@ def normalize_preset_to_markdown(raw: str | dict[str, Any] | list[Any]) -> str:
     * ``list``  — a list of ``{name, content}`` / ``{title, text}`` dicts;
                   each becomes a ``## <name>`` section.
 
-    The output is consumed by
-    :func:`app.agents.skills.extract_skills_from_preset`, which scans for
-    ``##``-level sections whose header matches a known style/jailbreak label.
+    The output is consumed by :func:`extract_preset_fragments`, which
+    scans for ``##``-level sections whose header matches a known
+    style/jailbreak label.
     """
     if isinstance(raw, str):
         return raw
@@ -86,21 +127,28 @@ def normalize_preset_to_markdown(raw: str | dict[str, Any] | list[Any]) -> str:
     return str(raw)
 
 
-def extract_preset_skills(preset_text: str | dict[str, Any] | list[Any]) -> list[Skill]:
-    """Extract 文风 / jailbreak skills from a preset.
+def extract_preset_fragments(
+    preset_text: str | dict[str, Any] | list[Any],
+) -> list[PromptFragment]:
+    """Extract 文风 / jailbreak fragments from a preset.
 
     Accepts the same payload shapes as :func:`normalize_preset_to_markdown`
     (markdown string, JSON/YAML dict, or list of section dicts). The
-    payload is normalized to markdown, then
-    :func:`app.agents.skills.extract_skills_from_preset` wraps each matching
-    ``##`` section as a :class:`~app.agents.skills.PresetStyleSkill` with a
-    stable, content-hashed name (``style_<hash8>`` or
-    ``jailbreak_<hash8>``).
+    payload is normalized to markdown, then every ``##`` section whose
+    header matches a known style/jailbreak label becomes a
+    :class:`PromptFragment`.
 
     Returns an empty list when no style/jailbreak sections are found.
     """
     markdown = normalize_preset_to_markdown(preset_text)
-    return _seam_extract(markdown)
+    fragments: list[PromptFragment] = []
+    for header, body in _split_sections(markdown):
+        header_lower = header.lower()
+        if header_lower in _STYLE_HEADERS or header in _STYLE_HEADERS:
+            fragments.append(PromptFragment(kind="style", text=body))
+        elif header_lower in _JAILBREAK_HEADERS or header in _JAILBREAK_HEADERS:
+            fragments.append(PromptFragment(kind="jailbreak", text=body))
+    return fragments
 
 
 # ── Internal: payload -> markdown ────────────────────────────────────────

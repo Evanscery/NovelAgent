@@ -4,7 +4,7 @@ Public surface:
 
 * :mod:`card_front`      — ST-style regex -> HTML front rendering.
 * :mod:`card_migration`  — tavern card -> 8-resource project migration.
-* :mod:`preset_extract`  — preset 文风/jailbreak -> agent Skills.
+* :mod:`preset_extract`  — preset 文风/jailbreak -> PromptFragment.
 
 Per ``docs/refactor_guide.md:27-29`` and decision D5, this package is one
 of the two sanctioned places where SillyTavern is named (the other is
