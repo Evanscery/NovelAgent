@@ -4,8 +4,6 @@ The canvas is the user-editable workflow definition: nodes (agent
 instantiations) + wires (directed edges). Strictly acyclic except for
 feedback wires (``repeat_count > 1``), which are genuine back-edges
 excluded from the topological sort.
-
-Extracted from the original monolithic ``workflow.py``.
 """
 
 from __future__ import annotations

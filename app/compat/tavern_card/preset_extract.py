@@ -1,7 +1,7 @@
 """Extract 文风 / jailbreak sections from a preset -> prompt fragments (compat layer).
 
-Per ``docs/refactor_guide.md:29`` the system "允许从 sillytavern 的预设提取
-用于 agent 的能力 (文风/jailbreak 等)". With the skill abstraction removed
+The system 允许从 sillytavern 的预设提取
+用于 agent 的能力 (文风/jailbreak 等). With the skill abstraction removed
 (a skill IS an agent), extraction is a **pure function of the compat
 layer**: it takes a raw SillyTavern preset (JSON, YAML, or markdown with
 embedded sections) and returns :class:`PromptFragment` objects — plain

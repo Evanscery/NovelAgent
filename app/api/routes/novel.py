@@ -1,4 +1,4 @@
-"""/api/novel — read chapters/scenes (refactor_guide:406-408 小说查看器).
+"""/api/novel — read chapters/scenes (小说查看器).
 
 Endpoints
 ---------
@@ -10,7 +10,7 @@ Endpoints
   ``chapter_01.txt``).
 
 The novel viewer is read-only here; editing/zoom is a front-end concern
-(guide:408 允许编辑/缩放等编辑器经典行为).
+(允许编辑/缩放等编辑器经典行为).
 """
 
 from __future__ import annotations

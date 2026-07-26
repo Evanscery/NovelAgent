@@ -5,7 +5,7 @@ director. The director is a *system agent* (loaded from
 ``director.yaml`` by the registry, an :class:`~app.agents.agent.Agent`
 like any other); the executor is the *runtime loop*.
 
-Per the correct design (refactor_guide:92-101):
+Design invariants:
 
 * The director decides via LLM which agents to call. Its response
   carries ``tool_calls`` (a list of :class:`ToolCall`). The executor
@@ -41,10 +41,12 @@ Three recursion-control gates (plan scope item 3) are enforced on each
     per director iteration and per sub-agent call. When exhausted the
     round finalizes with reason ``"budget_exhausted"``.
 
-(b) **Depth constraint** —
-    ``0 <= cur_depth - target_depth <= maximal_recursive_calling_depth``.
-    Self-call (Δ=0) allowed, parent-call (Δ=1, default) allowed, others
-    rejected with ``"cross-stage recursive call rejected"``.
+(b) **Depth constraint** — a ``call_agent`` target runs one level
+    deeper than the director; the forward delta
+    ``target_depth - director_depth`` must not exceed
+    ``maximal_recursive_calling_depth`` (default 1). Calls that would
+    exceed the limit are rejected with
+    ``"cross-stage recursive call rejected"``.
 
 (c) **Per-agent allow_recursive** — when the target agent's
     ``allow_recursive`` is ``False`` AND its call count exceeds 1, the

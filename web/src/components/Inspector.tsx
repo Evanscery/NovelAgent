@@ -1,12 +1,12 @@
 /**
- * Inspector — right-side collapsible context panel (todo 32).
+ * Inspector — right-side collapsible context panel.
  *
- * Renders a context body per active view (refactor_guide:348 multi-level
- * nav + per-view inspector context per plan todo 32):
+ * Renders a context body per active view (multi-level
+ * nav + per-view inspector context):
  *   workflow  → selected node detail (Name/Task/permissions)
  *   chat      → director reasoning trace (last director message + branch)
  *   resources → git diff summary (last commit sha + message)
- *   config    → field hints (per-field guidance per guide:368-384)
+ *   config    → field hints (per-field guidance)
  *   novel     → chapter meta (filename/number/size)
  *   rp        → state/dice log (RP action log tail)
  *   run       → job logs (live round log tail)
@@ -110,8 +110,7 @@ const CONFIG_HINTS: Record<string, string> = {
   Name: "Agent 的唯一标识，与节点 id 对应。",
   Task: "该 Agent 的工作职责（运行时由 parser 注入 prompt）。",
   Model: "模型档位或具体模型名（留空使用全局默认）。",
-  Skills: "逗号分隔的技能名（继承全局，可动态挂载）。",
-  Tools: "逗号分隔的工具名（read / search / write）。",
+  Tools: "逗号分隔的工具名（read / write / list_files / glob_files / grep_lines / read_lines）。",
   Permission: "hash<string, vector>，向量=资源目录名或文件名。",
   Input: "Agent 接收的输入描述（低频编辑）。",
   Output: "Agent 输出格式描述（低频编辑）。",

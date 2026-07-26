@@ -1,5 +1,5 @@
 /**
- * Zustand store for the workflow run panel (todo 32, guide:352-353).
+ * Zustand store for the workflow run panel.
  *
  * Holds the active round status + live logs. Wraps POST /api/workflow/
  * {id}/run (start), GET /api/workflow/{id}/round/{rid} (poll), and

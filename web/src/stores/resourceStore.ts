@@ -1,8 +1,8 @@
 /**
- * Zustand store for the per-type resource editor (todo 29, guide:386-400).
+ * Zustand store for the per-type resource editor.
  *
  * Holds the active resource type's content + history + list of all 8 types.
- * Wraps /api/resources. Per guide:210-211 the variables type is read-only
+ * Wraps /api/resources. The variables type is read-only
  * (the backend PUT refuses it; the store surfaces read_only from the GET
  * response so the UI can disable the editor).
  */

@@ -1,7 +1,6 @@
 """Scaffold a new project under ``workspaces/<system-id>/``.
 
-Per refactor_guide:33-47 and the work plan (todo 21), a new project is
-created with:
+A new project is created with:
 
 1. A **system-controlled** id via :func:`generate_project_id` (never
    user-supplied).
@@ -45,8 +44,8 @@ def scaffold_project(root: Path | str, display_name: str, mode: str = "novel") -
     Args:
         root: Repo root (the directory that contains ``workspaces/``).
         display_name: Human-readable project name (stored in ``config.yaml``,
-            NOT used as the directory name — per refactor_guide:40).
-        mode: ``"novel"`` or ``"rp"`` (per refactor_guide:42-47). Defaults
+            NOT used as the directory name).
+        mode: ``"novel"`` or ``"rp"``. Defaults
             to ``"novel"``.
 
     Returns:

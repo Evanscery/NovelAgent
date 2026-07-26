@@ -1,13 +1,14 @@
 /**
- * RpView — RP dynamic front (todo 31, guide:402-404).
+ * RpView — RP dynamic front.
  *
- * Per task scope: keep RpView SIMPLE for now — basic RP action input
+ * Deliberately SIMPLE for now — basic RP action input
  * that sends to the director via POST /api/chat/{projectId}. The
- * card-bound front rendering (regex→html) comes in todo 34 (compat
- * layer). The action input + last director response are owned by
+ * card-bound front rendering (regex→html) lives in the compat layer
+ * and is not wired into this view yet. The action input + last
+ * director response are owned by
  * rpStore; the full chat log (for the running RP history) is read
  * from chatStore so RP actions and regular chat share one backend
- * log per guide:410-413.
+ * log.
  */
 
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";

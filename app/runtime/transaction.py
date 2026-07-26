@@ -1,6 +1,6 @@
 """AtomicTurn — all-or-nothing Turn commit coordinator (Runtime layer).
 
-Per refactor_guide:334-336 every maintenance-write round of a Workflow
+Every maintenance-write round of a Workflow
 must commit ALL writes atomically or roll back NONE of them.
 
 The ``AtomicTurn`` context manager **coordinates** the transaction; the
@@ -59,7 +59,7 @@ class AtomicTurn:
     ) -> None:
         """Commit all writes on success; roll back to snapshot on exception.
 
-        Per refactor_guide:334-336 — all maintainer ops in a Turn either
+        All maintainer ops in a Turn either
         commit together or are fully discarded.
         """
         if exc_type is None:

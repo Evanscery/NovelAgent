@@ -6,7 +6,7 @@ Public surface:
 * :mod:`card_migration`  — tavern card -> 8-resource project migration.
 * :mod:`preset_extract`  — preset 文风/jailbreak -> PromptFragment.
 
-Per ``docs/refactor_guide.md:27-29`` and decision D5, this package is one
+Per decision D5, this package is one
 of the two sanctioned places where SillyTavern is named (the other is
 ``docs/compat_tavern_card.md``). Code outside ``app/compat/tavern_card/``
 must use the project's own terms (角色卡兼容 / 卡导入 / 预设技能).

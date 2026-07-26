@@ -9,10 +9,9 @@ Endpoints
 * ``POST /api/workflow/{project_id}/stop``       — stop a running round
   (cancels the background ``asyncio.Task``).
 
-Round status is kept **in-memory** (per todo 22: "Store round status in
-memory (dict[round_id, RoundStatus]) — simple, no DB"). The registry
-lives on ``app.state.round_registry`` and is created once by
-:func:`app.api.server.create_app`.
+Round status is kept **in-memory** (``dict[round_id, RoundStatus]`` —
+simple, no DB). The registry lives on ``app.state.round_registry`` and
+is created once by :func:`app.api.server.create_app`.
 
 The round itself is executed by the Runtime layer via the factory function
 :func:`~app.runtime.session.create_round_session` +
@@ -23,14 +22,13 @@ The director agent is loaded from ``director.yaml`` inside the factory
 function; it is a plain :class:`~app.agents.agent.Agent`, not a dedicated
 orchestrator class.
 
-Per refactor_guide:298-300 one Turn = one Round = one git Commit. The
-director's maintainer agent performs the actual data writes; the chat
-routes (``app/api/routes/chat.py``) are responsible for committing chat
-Turns. A workflow round does NOT auto-commit a Turn here — that is the
-caller's / maintainer's responsibility (the director's tool surface
-includes ``write`` which goes through the data layer). This route only
-orchestrates the round execution; the data-layer commit happens inside
-the round via the maintainer agent's writes + the transaction coordinator.
+The design invariant is one Turn = one Round = one git Commit. This
+route only orchestrates round execution — it does NOT commit a Turn.
+Agent writes during the round go through the data layer as plain file
+writes; committing a Turn is left to the caller (the chat routes,
+``app/api/routes/chat.py``, are where chat Turns are committed). The
+transaction coordinator (``app.runtime.transaction.AtomicTurn``) exists
+but is not wired into this production path.
 """
 
 from __future__ import annotations

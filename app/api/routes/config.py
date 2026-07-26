@@ -1,4 +1,4 @@
-"""/api/config — global models/providers + per-project + per-agent (refactor_guide:362-384).
+"""/api/config — global models/providers + per-project + per-agent config.
 
 Endpoints
 ---------
@@ -12,7 +12,7 @@ Endpoints
 * ``PUT  /api/config/{project_id}``               — update the project's
   ``config.yaml`` (display_name / mode / per-project overrides).
 * ``GET  /api/config/{project_id}/agents``        — list all 5 built-in
-  agents' attribute sets (per guide:368-384).
+  agents' attribute sets.
 * ``PUT  /api/config/{project_id}/agents/{name}`` — edit one agent's
   attribute set. Writes to a per-project override file
   ``workspaces/<id>/agents/<name>.yaml`` (preferred over mutating the
@@ -52,7 +52,7 @@ router = APIRouter(prefix="/api/config", tags=["config"])
 # Global tier files: name → (relative path, top-level wrapper key).
 # models.yaml and runtime.yaml are stored without a wrapper (the dict IS
 # the tier); server.yaml uses a ``server:`` wrapper to match the existing
-# config/ layout written by todo 3.
+# config/ layout.
 _GLOBAL_TIER_FILES: dict[str, tuple[Path, str | None]] = {
     "models": (Path("config") / "models.yaml", None),
     "runtime": (Path("config") / "runtime.yaml", None),
@@ -225,7 +225,7 @@ def put_project_agent(
     req: PutAgentConfigRequest,
     root: RootDep,
 ) -> AgentConfigResponse:
-    """Edit one agent's attribute set (guide:368-384).
+    """Edit one agent's attribute set.
 
     Writes a per-project override file at
     ``workspaces/<id>/agents/<name>.yaml``. Built-in definitions are

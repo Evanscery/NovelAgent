@@ -1,13 +1,13 @@
 """Agent registry — load built-in agents from yaml, register custom, load workflow.
 
-Per refactor_guide:92-101 the built-in agents are: director (mandatory),
+The built-in agents are: director (mandatory),
 recaller, scout, writer, critic, maintainer. Each is defined by an
 **attribute set** (NOT a prompt) stored in ``app/agents/builtin/*.yaml``;
 the parser assembles the prompt at runtime.
 
 The registry resolves agent **names** to :class:`~app.agents.agent.Agent`
-instances by **id** (the control/storage identifier, per
-refactor_guide:63). ``id`` is unique per instance and is the
+instances by **id** (the control/storage
+identifier). ``id`` is unique per instance and is the
 workflow/tree-facing identifier; ``name`` is a display attribute
 (mutable, not guaranteed unique) and is resolved via
 :meth:`get_by_name` only on the user-facing surface (the API config
@@ -34,7 +34,7 @@ _AMBIGUOUS: object = object()
 class AgentRegistry:
     """Registry of :class:`Agent` instances keyed by agent **id**.
 
-    Per refactor_guide:63, ``id`` is the control/storage identifier
+    ``id`` is the control/storage identifier
     (unique, read-only); ``name`` is a display attribute (mutable, not
     guaranteed unique). The registry keys its primary index by ``id``;
     a secondary name index supports :meth:`get_by_name` for the
@@ -142,8 +142,8 @@ def _load_agent_yaml(path: Path) -> Agent:
     Delegates to :meth:`Agent.from_dict` (the single load-path
     constructor). An explicit, well-formed ``id`` is required -- there
     is no file-stem fallback, because relying on a file name as
-    identity makes shared agents ambiguous (per refactor_guide:63:
-    ``id`` is the control/storage identifier).
+    identity makes shared agents ambiguous (``id`` is the
+    control/storage identifier).
 
     Args:
         path: Path to the agent yaml file.

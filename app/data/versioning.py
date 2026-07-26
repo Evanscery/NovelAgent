@@ -35,8 +35,8 @@ class VersionManager:
             mode:
                 ``"branch"`` (default) — create a **new branch** from the
                 target commit and check it out.  The original branch and
-                all its data are preserved intact (per refactor_guide:314-316
-                回滚=切换版本非删除=新Branch).
+                all its data are preserved intact
+                (回滚=切换版本非删除=新Branch).
 
                 ``"delete"`` —  **DESTRUCTIVE**: permanently discard all
                 commits after the target on the current branch via
@@ -92,8 +92,8 @@ class VersionManager:
     ) -> list[CommitInfo]:
         """Return commits newest-first that touched ``resources/<resource_type>/``.
 
-        The per-type editor exposes this as its version-history list (per
-        refactor_guide:388-400 每类数据…历史版本查看).
+        The per-type editor exposes this as its version-history list
+        (每类数据支持历史版本查看).
         """
         rel = f"resources/{resource_type}"
         return self._repo.list_history_for_path(rel, max_count=max_count)

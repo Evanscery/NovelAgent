@@ -1,13 +1,12 @@
 /**
- * ResourceEditorView — per-type data editor + version history
- * (todo 29, guide:386-400).
+ * ResourceEditorView — per-type data editor + version history.
  *
  * Left tree: 8 resource types (大纲/细纲/当前状态/变量/世界书/客观事实/
  * 人物记忆/创作笔记 — titles come from the backend list response).
  * Selecting a type loads its content into a CodeMirror markdown editor
  * and its git commit history into the right panel. Save (PUT) writes
  * new content; history refreshes. The variables type is read-only
- * (guide:210-211) — editor disabled + save button disabled.
+ * — editor disabled + save button disabled.
  */
 
 import { useEffect, useState, type ReactNode } from "react";

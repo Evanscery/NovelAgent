@@ -1,6 +1,6 @@
 /**
  * AgentNode — a single react-flow node rendering Name + Task.
- * Used by WorkflowCanvasView (todo 27). Per guide:356-360 nodes show
+ * Used by WorkflowCanvasView. Nodes show
  * agent identity + task; clicking opens the side panel (handled by the
  * view via onNodeClick).
  */

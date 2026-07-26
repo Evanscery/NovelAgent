@@ -1,7 +1,6 @@
 """Four-tier layered config: global < profile < project < run-override.
 
-Per refactor_guide §项目目录与配置控制 (lines 31-47) and the four-tier
-priority described in the work plan (global < profile < project < run-override):
+Four tiers, in ascending priority (global < profile < project < run-override):
 
 * **global**   — ``config/models.yaml``, ``config/runtime.yaml``,
   ``config/server.yaml``, ``config/agents.yaml`` at the repo root. Shared
@@ -131,7 +130,7 @@ class ProjectConfig(BaseModel):
     """Merged per-project configuration (global + project config.yaml).
 
     Carries the project-specific fields ``display_name`` and ``mode`` from
-    ``workspaces/<id>/config.yaml`` (refactor_guide:40-47) plus the merged
+    ``workspaces/<id>/config.yaml`` plus the merged
     global layers that the project is allowed to override.
     """
 

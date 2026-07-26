@@ -1,10 +1,10 @@
 /**
- * Zustand store for the centralized config page (todo 30, guide:362-384).
+ * Zustand store for the centralized config page.
  *
  * Holds the project's merged config + per-agent list. Save posts to
  * PUT /api/config/{project_id} (project config) + PUT /api/config/{id}/
  * agents/{name} (per-agent). Expert mode toggle is pure UI state (not
- * persisted server-side) per guide:354-355.
+ * persisted server-side).
  */
 
 import { create } from "zustand";
@@ -97,7 +97,7 @@ export function createConfigStore(apiClient: ApiClient = defaultApi) {
 
 export const useConfigStore = createConfigStore();
 
-/** Provider type options per guide:366. */
+/** Provider type options. */
 export const PROVIDER_TYPES = [
   "openai_compatible",
   "openai_response",
@@ -105,7 +105,7 @@ export const PROVIDER_TYPES = [
 ] as const;
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
 
-/** Model tier options per guide:366. */
+/** Model tier options. */
 export const MODEL_TIERS = ["premium", "standard", "cheap"] as const;
 export type ModelTier = (typeof MODEL_TIERS)[number];
 

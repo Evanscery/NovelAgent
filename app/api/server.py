@@ -11,8 +11,8 @@ Security middleware
   whose client IP is not on the list is rejected with ``403``. An empty
   whitelist disables the check (open access, intended for local dev).
 
-Routers wired here: ``projects`` (todo 21), ``workflow`` + ``chat``
-(todo 22), ``resources`` + ``config`` + ``import_`` + ``novel`` (todo 23).
+Routers wired here: ``projects``, ``workflow``, ``chat``,
+``resources``, ``config``, ``import_``, ``novel``.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
+from app.agents.agent import set_default_tools
 from app.api.routes import chat as chat_routes
 from app.api.routes import config as config_routes
 from app.api.routes import import_ as import_routes
@@ -47,6 +48,13 @@ def create_app(root: Path | str) -> FastAPI:
     root_path = Path(root).resolve()
     cfg = ConfigLoader(root_path).load_global()
     server_cfg = cfg.server
+
+    # Populate the global default-tools cache from config/agents.yaml so
+    # Agent's `tools` field default_factory (and registry fallbacks) inherit
+    # the user-editable value. Single wiring point for every entry path
+    # (CLI `serve`, direct uvicorn, tests). Edit config/agents.yaml +
+    # restart to pick up changes — no in-process provider callback by design.
+    set_default_tools(list(cfg.agents.default_tools))
 
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> AsyncIterator[None]:

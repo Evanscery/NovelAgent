@@ -2,7 +2,7 @@
  * App shell layout: NavRail (left, collapsible) + active view (center) +
  * Inspector (right, collapsible + drag-resize, context per active view).
  *
- * Per refactor_guide:348 标签页+多级导航, guide:350 风格现代简洁.
+ * 标签页+多级导航；风格现代简洁.
  */
 
 import { useEffect, useRef, useState } from "react";

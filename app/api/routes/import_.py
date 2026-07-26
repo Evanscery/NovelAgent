@@ -1,4 +1,4 @@
-"""/api/import — delegates to app/compat/tavern_card (todo 34).
+"""/api/import — delegates to app/compat/tavern_card.
 
 End-to-end card import flow:
 
@@ -21,7 +21,7 @@ End-to-end card import flow:
    ``mode`` reflect the card (unless the request overrode them).
 7. ``201`` :class:`ImportResponse` is returned.
 
-Per ``docs/refactor_guide.md:27-29`` + D5, all character-card-compat naming
+Per decision D5, all character-card-compat naming
 converges to ``app/compat/tavern_card/``. This route is the API seam; it
 uses the project's own terms (角色卡 / 卡导入) in user-facing messages and
 delegates all card-format specifics to the compat layer.

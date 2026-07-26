@@ -21,10 +21,10 @@ if TYPE_CHECKING:
 class RunnerAgent(Protocol):
     """Minimal agent view a runner needs.
 
-    The full ``Agent`` class is defined in todo 15 (``app/agents/agent.py``)
-    and is not yet implemented. A runner only reads ``id`` and ``model``
-    from the agent, so we depend on this narrow Protocol to avoid a circular
-    import and to keep the runner agent-agnostic.
+    The full ``Agent`` class lives in ``app/agents/agent.py``. A runner
+    only reads ``id`` and ``model`` from the agent, so we depend on this
+    narrow Protocol to avoid a circular import and to keep the runner
+    agent-agnostic.
 
     ``id`` and ``model`` are declared as read-only properties so that
     frozen dataclasses (like :class:`app.agents.agent.Agent`) structurally

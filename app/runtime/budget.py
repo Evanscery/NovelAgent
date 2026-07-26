@@ -1,7 +1,6 @@
 """Token/tool budget tracker; Finalize on budget exhaustion / max iterations.
 
-Per refactor_guide:103-109 a Workflow round ends under exactly three
-conditions:
+A Workflow round ends under exactly three conditions:
 
 1. the maximum iteration count is reached,
 2. the token or tool-call budget is exhausted, or
@@ -40,12 +39,11 @@ class FinalizeSignal(Exception):
     """Raised to terminate the current Workflow round.
 
     The Runtime / director catches this to end the round cleanly. It carries a
-    short machine-readable ``reason`` describing *why* the round is ending:
-
-    - ``"budget_exhausted"`` — a token / tool-call / iteration ceiling was
-      breached during ``consume``.
-    - ``"max_iterations"`` — the iteration ceiling was reached.
-    - ``"explicit_finalize"`` — the director called ``Finalize`` directly.
+    short machine-readable ``reason`` describing *why* the round is ending.
+    This module raises it with reason ``"budget_exhausted"`` when a token /
+    tool-call / iteration ceiling is breached during ``consume``. Other
+    round-end reasons (e.g. an explicit ``finalize`` tool call) are produced
+    by the round executor directly, without going through this exception.
     """
 
     __slots__ = ("reason",)

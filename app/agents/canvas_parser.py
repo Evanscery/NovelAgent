@@ -3,8 +3,6 @@
 Compiles a :class:`~app.canvas.canvas_model.CanvasGraph` into an expanded
 :class:`~app.agents.tree_model.WorkflowTree` via loop unrolling of feedback
 wires.
-
-Extracted from the original monolithic ``workflow.py``.
 """
 
 from __future__ import annotations

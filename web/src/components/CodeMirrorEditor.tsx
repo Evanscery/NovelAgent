@@ -1,11 +1,10 @@
 /**
  * CodeMirrorEditor — minimal CodeMirror 6 binding for markdown editing.
  *
- * Used by ResourceEditorView (todo 29) and NovelView (todo 31). Wraps
+ * Used by ResourceEditorView and NovelView. Wraps
  * @codemirror/state + @codemirror/view + @codemirror/lang-markdown into
- * a controlled component: value/onChange/readOnly. Per guide:386-400
- * each data type has an independent editor; per guide:210-211 the
- * variables type is read-only.
+ * a controlled component: value/onChange/readOnly. Each data type has
+ * an independent editor; the variables type is read-only.
  */
 
 import { useEffect, useRef } from "react";

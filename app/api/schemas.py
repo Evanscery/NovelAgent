@@ -1,8 +1,8 @@
 """Pydantic request/response models for the API layer.
 
-These schemas are the wire contract for ``/api/projects`` and the routes
-added in todos 22-23. Project ids are **always** system-controlled
-(refactor_guide:39), so create requests carry only ``display_name`` and
+These schemas are the wire contract for ``/api/projects`` and the other
+API routes. Project ids are **always** system-controlled,
+so create requests carry only ``display_name`` and
 ``mode`` — the id is generated server-side and returned in the response.
 """
 
@@ -85,7 +85,7 @@ class ProjectListResponse(BaseModel):
     projects: list[ProjectSummary]
 
 
-# ── Workflow run routes (todo 22) ────────────────────────────────────────
+# ── Workflow run routes ──────────────────────────────────────────────────
 
 
 # ChatMessage is persisted by the data layer (work/chat.jsonl); the wire
@@ -130,7 +130,7 @@ class RoundStatusResponse(BaseModel):
     error: str | None = None
 
 
-# ── Chat routes (todo 22) ────────────────────────────────────────────────
+# ── Chat routes ──────────────────────────────────────────────────────────
 
 
 class SendChatRequest(BaseModel):
@@ -161,7 +161,7 @@ class RetryResponse(BaseModel):
     director_message: ChatMessage | None = None
 
 
-# ── Resource routes (todo 23) ───────────────────────────────────────────
+# ── Resource routes ─────────────────────────────────────────────────────
 
 
 class ResourceListEntry(BaseModel):
@@ -233,7 +233,7 @@ class ResourceHistoryResponse(BaseModel):
     commits: list[ResourceHistoryEntry]
 
 
-# ── Config routes (todo 23) ─────────────────────────────────────────────
+# ── Config routes ───────────────────────────────────────────────────────
 
 
 class ConfigResponse(BaseModel):
@@ -299,11 +299,10 @@ class PutProjectConfigRequest(BaseModel):
 
 
 class AgentConfigResponse(BaseModel):
-    """One agent's attribute set (per refactor_guide:62-73 + todo 18).
+    """One agent's attribute set.
 
     ``allow_recursive`` is included because it is serializable to yaml
-    and the front-end config page exposes it as a per-agent toggle
-    (todo 18 / plan scope).
+    and the front-end config page exposes it as a per-agent toggle.
     """
 
     id: str = Field(description="Agent control identifier (unique, read-only)")
@@ -322,7 +321,7 @@ class AgentConfigResponse(BaseModel):
 class PutAgentConfigRequest(BaseModel):
     """PUT /api/config/{project_id}/agents/{name} body.
 
-    Every editable attribute from refactor_guide:368-384 is accepted.
+    Every editable agent attribute is accepted.
     The ``name`` path parameter is authoritative — a body ``name``
     mismatch is rejected with 400 by the route handler.
     """
@@ -331,7 +330,7 @@ class PutAgentConfigRequest(BaseModel):
     task: str = Field(..., min_length=1)
     input: str = Field(..., min_length=1)
     output: str = Field(..., min_length=1)
-    permission: dict[str, list[str]] = Field(..., description="Hash<string, vector> per guide:77-80")
+    permission: dict[str, list[str]] = Field(..., description="Hash<string, vector>: action -> resource-type list")
     model: str | None = None
     tools: list[str] = Field(default_factory=list)
     head: str | None = None
@@ -339,7 +338,7 @@ class PutAgentConfigRequest(BaseModel):
     allow_recursive: bool = True
 
 
-# ── Novel routes (todo 23) ──────────────────────────────────────────────
+# ── Novel routes ────────────────────────────────────────────────────────
 
 
 class NovelChapterSummary(BaseModel):
@@ -368,7 +367,7 @@ class NovelChapterResponse(BaseModel):
     content: str
 
 
-# ── Import route (todo 34 — compat layer delegation) ─────────────────────
+# ── Import route (compat layer delegation) ───────────────────────────────
 
 
 class ImportRequest(BaseModel):

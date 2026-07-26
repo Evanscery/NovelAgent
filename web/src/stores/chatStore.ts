@@ -1,8 +1,8 @@
 /**
- * Zustand store for the director chat (todo 28, guide:410-413).
+ * Zustand store for the director chat.
  *
  * Holds the chat message log + actions: send, delete (rolls back), retry.
- * Wraps /api/chat. Per guide:412 deleting a message syncs to backend
+ * Wraps /api/chat. Deleting a message syncs to backend
  * rollback — the DELETE endpoint returns the surviving messages and we
  * replace the local list with them. Retry re-sends from a message and
  * returns the new exchange.

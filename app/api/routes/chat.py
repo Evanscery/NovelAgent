@@ -8,12 +8,12 @@ Endpoints
   commit a Turn, return both messages.
 * ``DELETE /api/chat/{project_id}/{message_id}``     — delete a message
   **and roll back** the project's git to the Turn *before* the message
-  (per guide:412 "同步到后端数据回滚"). Rollback is mode='branch'
-  (guide:314-316 — rollback = new branch, NOT delete).
+  (删除同步到后端数据回滚). Rollback is mode='branch'
+  (rollback = new branch, NOT delete).
 * ``POST   /api/chat/{project_id}/{message_id}/retry`` — retry from a
   message: roll back to before it, re-send, return the new response.
 
-Per refactor_guide:410-413 the user only chats with the director
+The user only chats with the director
 (``chatbot`` semantics: add / del / retry / error-retry), and every
 mutating operation is synced to the backend's data rollback / update.
 
@@ -261,7 +261,7 @@ async def send_chat_message(
     store.append_message(director_message)
 
     # Commit a Turn: both the chat log update and any resource writes the
-    # director's round produced land in one atomic commit (guide:334-336).
+    # director's round produced land in one atomic commit.
     _commit_turn(project_path, turn_id=turn_id, message=f"chat exchange {turn_id}")
 
     return ChatResponse(user_message=user_message, director_message=director_message)
@@ -279,8 +279,8 @@ def delete_chat_message(
 ) -> list[ChatMessage]:
     """Delete a message **and roll back** the project to the Turn before it.
 
-    Per guide:412 the delete is synced to backend data rollback. Per
-    guide:314-316 rollback = new branch (NOT delete) — the original
+    The delete is synced to backend data rollback.
+    Rollback = new branch (NOT delete) — the original
     timeline is preserved on its old branch.
     """
     project_path = resolve_project(root, project_id)
@@ -300,7 +300,7 @@ def delete_chat_message(
     # roll back to.
     rollback_to_turn = _turn_id_before(project_path, target)
 
-    # Perform the rollback (mode='branch' per guide:314-316).
+    # Perform the rollback (mode='branch' — rollback creates a new branch).
     version_mgr = VersionManager(project_path)
     try:
         branch = version_mgr.rollback(to_turn=rollback_to_turn, mode="branch")
@@ -330,8 +330,8 @@ async def retry_chat_message(
     """Retry from *message_id*: roll back to before it, re-send, return
     the new reply.
 
-    Per guide:412 retry is synced to backend rollback + re-run. The
-    rollback creates a new branch (mode='branch', guide:314-316) — the
+    Retry is synced to backend rollback + re-run. The
+    rollback creates a new branch (mode='branch') — the
     branch name is returned in :class:`RetryResponse` so the client can
     show the user that a new timeline was created.
     """

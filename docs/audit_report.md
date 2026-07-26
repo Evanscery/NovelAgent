@@ -447,3 +447,36 @@ RoundExecutor 位于 Runtime 层（正确），但其实际承担的职责混合
 2. **职责越界**（问题 2, 5）：API 路由承担了 Runtime 编排职责；数据层承担了权限检查职责。
 
 待确认问题的根因是设计文档的边界定义不够精确：tool-call 循环是否属于"工作流控制"、搜索是否属于数据层的"读"职责、索引构建是否属于"不知道如何搜索"的禁止范围——这些需要设计文档补充定义才能确定。
+
+---
+
+## 2026-07-27 复审结论
+
+旧报告的 **5 个确认违规均已修复**：
+
+1. Runner 及其数据结构已迁至 Runtime 层（`app/runtime/runners/`）。
+2. 画布模型已迁至用户层目录 `app/canvas/`。
+3. `ToolExecutor` 已删除（工具执行统一走 runtime 的 dispatcher）。
+4. API 层的 Runtime 编排已收敛到 `create_round_session` 工厂（API 不再直接构造 Runtime/BudgetTracker/RoundExecutor）。
+5. `store.permission_check` / `store.search` / `store._update_index` 已从数据层删除。
+
+本轮又完成：
+
+- **Permission 定义迁至 agent 层**（消除 agents→runtime 反向依赖）。
+- **runner/预算/深度接入 config**（`models.yaml` / `runtime.yaml`）。
+- **每 agent 独立权限工具面**：子 agent 的工具调用真实执行（各自的 permission 生效）。
+- **双状态机合并**：`RoundState` 增加 `stopped`，round 状态一处定义。
+- **chat 使用真实项目路径**（不再用临时/占位路径）。
+- **director 移除必拒的 `write` 工具**。
+- **message_store 迁数据层**。
+- **约 800 行确认死代码删除**（projection、文本解析路径、死 facade 等）。
+
+已知未做（有意保留）：
+
+- `resource_types` 的 `default_properties` 维持旧裁决。
+- `_READ_ONLY_TYPES` / `_TYPE_TITLES` 仍在 API 层。
+- chat 轮的 director `tool_calls` 不 dispatch。
+- `round_executor` 中文 feedback 文案。
+- `all_nodes_done` 语义。
+- `transaction.AtomicTurn` 未接入生产路径。
+- model tier 名直发 API。

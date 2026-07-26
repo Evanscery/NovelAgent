@@ -11,7 +11,7 @@ Endpoints
   the project's ``config.yaml``.
 * ``DELETE /api/projects/{id}`` — remove the workspace directory.
 
-Per refactor_guide:39 the id is **system-controlled**: the POST body carries
+The id is **system-controlled**: the POST body carries
 only ``display_name`` and ``mode``; any user-supplied ``id`` field is
 ignored (and rejected if present, to make the contract explicit).
 """

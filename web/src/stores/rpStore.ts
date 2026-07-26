@@ -1,9 +1,9 @@
 /**
- * Zustand store for the RP view (todo 31, guide:402-404).
+ * Zustand store for the RP view.
  *
  * Holds the RP action input + the last director response. send() posts
  * the player's action to /api/chat/{projectId} (RP actions reuse the
- * director chat contract per guide:410-413). The full chat history is
+ * director chat contract). The full chat history is
  * owned by chatStore; this store tracks only the RP-specific action/
  * response pair so the RpView input box and last-response display can
  * render without re-reading the whole log.

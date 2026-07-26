@@ -1,11 +1,11 @@
 /**
- * ChatView — director chat (todo 28, guide:410-413).
+ * ChatView — director chat.
  *
  * Message list (user + director), input box, send button. Each message
  * has a delete button (DELETE /api/chat/{id}/{mid} → backend rolls back
  * a git Turn and returns the surviving messages) and a retry button
  * (POST .../retry → rolls back + re-runs, returns the new exchange).
- * Messages render markdown via marked. Per guide:413 default user only
+ * Messages render markdown via marked. By default the user only
  * chats with the director.
  */
 

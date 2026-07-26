@@ -16,7 +16,7 @@ _SECTION_HEADINGS: list[str] = [
 class ResourceProperties:
     """Per-resource-type attribute table (properties.md).
 
-    Mirrors the four strategy fields from refactor_guide §数据设计:
+    Mirrors the four per-type strategy fields:
     存储方式, 召回策略, 维护策略, 版本策略.
     """
 

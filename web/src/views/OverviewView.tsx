@@ -1,6 +1,6 @@
 /**
  * OverviewView — project hub.
- * Per refactor_guide:352-353 默认傻瓜式, 面向零技术用户.
+ * 默认傻瓜式, 面向零技术用户.
  * Lists existing projects as cards, "新建项目" button opens a modal with
  * display_name + mode select. Empty state when no projects.
  */

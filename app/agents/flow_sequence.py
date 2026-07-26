@@ -2,8 +2,6 @@
 
 Produces the numbered execution-order text injected into the director
 prompt, derived from a :class:`~app.agents.tree_model.WorkflowTree`.
-
-Extracted from the original monolithic ``workflow.py``.
 """
 
 from __future__ import annotations

@@ -1,16 +1,16 @@
 /**
- * ConfigView — centralized config (todo 30, guide:362-384).
+ * ConfigView — centralized config.
  *
  * Two sections:
  *  1. Project config — display_name + mode (novel/rp) + models/runtime
  *     blobs (raw yaml-shape editing in expert mode).
  *  2. Per-agent config — one card per agent editing Name/Task/Model/
- *     Skills/Tools/Permission/Input/Output/allow_recursive; expert mode
+ *     Tools/Permission/Input/Output/allow_recursive; expert mode
  *     reveals head/tail. Save posts to PUT /api/config/{id}/agents/{name}.
  *
- * Default mode = 傻瓜式 (guide:353): only the friendly fields show;
- * Expert toggle (guide:355) reveals advanced fields + raw model yaml.
- * Per guide:378-384 the canvas/config saves CONFIG not PROMPT — the
+ * Default mode = 傻瓜式: only the friendly fields show;
+ * the Expert toggle reveals advanced fields + raw model yaml.
+ * The canvas/config saves CONFIG not PROMPT — the
  * parser generates prompts at runtime.
  */
 
@@ -278,7 +278,7 @@ function AgentConfigCard({
 }
 
 function ProviderReferencePanel(): ReactNode {
-  /** Static reference card per guide:366 — provider types + model tiers. */
+  /** Static reference card — provider types + model tiers. */
   return (
     <aside className="config-section">
       <h2 className="view__title">供应商 / 模型 参考速查</h2>

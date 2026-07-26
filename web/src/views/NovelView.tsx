@@ -1,5 +1,5 @@
 /**
- * NovelView — novel reader + edit/zoom (todo 31, guide:406-408).
+ * NovelView — novel reader + edit/zoom.
  *
  * Left: chapter list (GET /api/novel/{id}). Right: chapter content
  * rendered as markdown (marked). Edit mode toggles a CodeMirror editor

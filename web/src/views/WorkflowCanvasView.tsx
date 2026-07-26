@@ -1,13 +1,13 @@
 /**
- * WorkflowCanvasView — Comfy-UI-like canvas (todo 27, guide:356-360).
+ * WorkflowCanvasView — Comfy-UI-like canvas.
  *
  * Nodes = agents from the registry; edges = wires with repeat_count labels.
  * Drag-to-create edge (react-flow onConnect), click node to open the side
- * panel for editing the agent's attribute set (Name/Task/Model/Skills/
- * Tools/Permission/Input/Output/allow_recursive + head/tail in expert mode
- * per guide:368-384). Export/import JSON (guide:360). Save posts per-agent
+ * panel for editing the agent's attribute set (Name/Task/Model/
+ * Tools/Permission/Input/Output/allow_recursive + head/tail in expert
+ * mode). Export/import JSON. Save posts per-agent
  * to PUT /api/config/{projectId}/agents/{name}. The canvas does NOT execute
- * the workflow — that is RunView (todo 32).
+ * the workflow — that is RunView.
  */
 
 import {

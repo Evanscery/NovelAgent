@@ -1,6 +1,6 @@
 """System-controlled project id → path resolution.
 
-Per refactor_guide:39 the project id is **system-controlled** (not
+The project id is **system-controlled** (not
 user-supplied) and lives under ``workspaces/<id>/``. This module is the
 single source of truth for that mapping: it generates ids, resolves them to
 paths, validates their format, and lists known projects.
@@ -41,7 +41,7 @@ def generate_project_id() -> str:
     """Generate a fresh, unique-looking project id.
 
     Format: ``proj_<uuid8>`` — 8 hex characters from :func:`uuid.uuid4`.
-    The id is system-controlled (per refactor_guide:39); callers must NOT
+    The id is system-controlled; callers must NOT
     accept user-supplied ids.
     """
     suffix = uuid.uuid4().hex[:8]

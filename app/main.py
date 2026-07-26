@@ -1,6 +1,6 @@
 """CLI entry — ``serve`` subcommand only.
 
-Per Metis Issue 4 and refactor_guide:352-353 (傻瓜式 default mode), the only
+In keeping with the 傻瓜式 default mode, the only
 CLI subcommand is ``serve``: it boots the FastAPI app via uvicorn.
 ``init-project`` / ``run-round`` / ``import-card`` are frontend-driven
 (they are user-facing flows, not developer CLI tasks), so they are NOT
@@ -71,7 +71,6 @@ def _serve(args: argparse.Namespace) -> int:
     # Lazy import so `--help` and unrelated imports stay fast.
     import uvicorn
 
-    from app.agents.agent import set_default_tools
     from app.api.server import create_app
     from app.config_loader import ConfigLoader
 
@@ -80,12 +79,8 @@ def _serve(args: argparse.Namespace) -> int:
     host = args.host or cfg.server.host
     port = args.port if args.port is not None else cfg.server.port
 
-    # Populate the global default-tools cache from config/agents.yaml so
-    # Agent's `tools` field default_factory (and registry fallbacks) inherit
-    # the user-editable value. Edit config/agents.yaml + restart (or uvicorn
-    # --reload) to pick up changes — no in-process provider callback by design.
-    set_default_tools(list(cfg.agents.default_tools))
-
+    # create_app wires the config-driven agent defaults (set_default_tools)
+    # — the single wiring point for every entry path.
     app = create_app(root)
     uvicorn.run(app, host=host, port=port, reload=args.reload)
     return 0

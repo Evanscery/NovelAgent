@@ -42,5 +42,5 @@ novel_project/work/reports/*
 archive/legacy/web/node_modules/
 archive/legacy_workspaces/*/
 
-# OpenCode internal state
-.omo/run-continuation/
+# OpenCode internal state (session ledger/evidence kept on disk, not versioned)
+.omo/

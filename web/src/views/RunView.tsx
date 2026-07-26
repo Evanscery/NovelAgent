@@ -1,5 +1,5 @@
 /**
- * RunView — workflow run panel (todo 32, guide:352-353).
+ * RunView — workflow run panel.
  *
  * "开始一轮" button (POST /api/workflow/{id}/run). Polls the round
  * status (GET /api/workflow/{id}/round/{rid}) every 1.5s while the

@@ -156,7 +156,7 @@ class ProjectRepo:
         """Restore the working tree to the state at *commit_sha*.
 
         Used by :class:`app.runtime.transaction.AtomicTurn` to discard
-        partial writes when a Turn fails. Per refactor_guide:334-336 a
+        partial writes when a Turn fails. A
         failed Turn must leave NO partial state behind.
 
         Args:

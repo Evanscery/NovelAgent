@@ -100,9 +100,9 @@ class CharacterMemory(Resource):
 class Notes(Resource):
     """创作笔记 — 动态发现/反馈/新约束 (low-freq, 覆盖维护).
 
-    Per refactor_guide:191-194 创作笔记 belongs to the low-freq update
-    category (alongside 大纲/事实/世界观), and guide:206 lists it as
-    short-length data. Per guide:281 短数据采用覆盖维护, and guide:268
+    创作笔记 belongs to the low-freq update
+    category (alongside 大纲/事实/世界观) and is
+    short-length data. 短数据采用覆盖维护, and
     short+low-freq data uses 按需读入 recall. So Notes is low-freq /
     short / 覆盖维护 / 覆盖版本 — NOT frequent / 增量.
     """

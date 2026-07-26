@@ -1,8 +1,7 @@
 """Render agent attributes -> system prompt at runtime (config static, prompt dynamic).
 
-Per ``docs/refactor_guide.md:75``: "这些属性硬存储在数据结构中，发送agent请求时，
-会调用parser将这些参数解析并组合成prompt". And per guide:378-384:
-"配置是静态的，Prompt 是动态生成的".
+属性硬存储在数据结构中；发送 agent 请求时，由 parser 将这些参数解析并
+组合成 prompt——配置是静态的，Prompt 是动态生成的。
 
 This module renders the agent's **system prompt** only: the stable,
 per-agent instruction block (task / input / output / permission / tools,
@@ -28,7 +27,7 @@ def _format_permission_section(agent: Agent) -> str:
     Lists the read-allowed and write-allowed resource types. The verb
     (读取 / 写入) is only emitted when the corresponding action key is
     present in the permission rules — an absent key yields an empty
-    resource list with no verb, mirroring refactor_guide:77-78.
+    resource list with no verb.
     """
     read_verb = "读取" if "read" in agent.permission.rules else ""
     write_verb = "写入" if "write" in agent.permission.rules else ""
@@ -56,11 +55,11 @@ def render_agent_system_prompt(agent: Agent, *, flow_sequence: str = "") -> str:
     7. ``## 工作流执行顺序`` (only if *flow_sequence* is non-empty — director-only)
     8. ``tail``        (appended if present)
 
-    The ``flow_sequence`` parameter (todo 18) is the linear execution-order
+    The ``flow_sequence`` parameter is the linear execution-order
     text generated from the workflow tree by
     :func:`app.agents.workflow.generate_flow_sequence`. It is injected here
     so the director — which defaults to full-recall of the workflow
-    resource — knows the execution order. Per the todo 18 design,
+    resource — knows the execution order. By design,
     ``allow_recursive`` is a runtime-only attribute and is NEVER emitted
     into the prompt.
 

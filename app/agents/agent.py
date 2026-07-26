@@ -6,9 +6,9 @@ Design Philosophy:
   via `render_agent_system_prompt`. Do not hardcode prompts here.
 
 Attributes:
--The first 10 attributes (id … tail) are the refactor_guide attribute set
-(guide:62-73). The 11th, ``allow_recursive``, is a **runtime-only** flag
-introduced by the AST-like workflow design (todo 18 / plan scope): it is
+-The first 10 attributes (id … tail) form the core agent attribute set.
+The 11th, ``allow_recursive``, is a **runtime-only** flag
+introduced by the AST-like workflow design: it is
 NOT injected into the agent's prompt (the parser must never emit it), but
 it IS serializable to yaml so the front-end config page can expose it as a
 per-agent toggle. Runtime uses it as the third recursion-control gate:
@@ -21,9 +21,9 @@ Constraints:
 read-only and must never change after creation — it is validated to be
 non-empty in ``__post_init__``.
 
--The ``Agent`` structurally satisfies the :class:`RunnerAgent` Protocol
-(``id: str``, ``model: str | None``) so it can be passed directly to any
-:class:`AgentRunner`.
+-The ``Agent`` exposes the minimal attribute surface a runner needs
+(``id: str``, ``model: str | None``), so it can be passed directly to
+any runner.
 
 The default tools are NOT hardcoded here. ``tools`` falls back to the
 module-level cache :data:`_default_tools_cache`, which is populated once
@@ -42,8 +42,8 @@ from typing import Any
 
 from app.agents.permission import Permission, parse_permission
 
-#: Rigorous agent-id format. Per refactor_guide:63 ``id`` is the control /
-#: storage identifier and ``name`` is the display attribute. A shareable
+#: Rigorous agent-id format. ``id`` is the control / storage identifier
+#: and ``name`` is the display attribute. A shareable
 #: id must be a safe identifier (lowercase alnum + ``-`` / ``_``). Enforced
 #: on the load path only, NOT in __post_init__.
 _AGENT_ID_RE: re.Pattern[str] = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -84,16 +84,16 @@ def set_default_tools(tools: list[str]) -> None:
 def get_default_tools() -> list[str]:
     """Return a fresh copy of the cached default tools list.
 
-    Public accessor so :mod:`app.agents.registry` and
-    :mod:`app.api.routes.config` consult the same fallback the Agent
-    constructor uses without naming the private :data:`_default_tools_cache`.
+    Public accessor so callers (e.g. :mod:`app.agents.registry`) consult
+    the same fallback the Agent constructor uses without naming the
+    private :data:`_default_tools_cache`.
     """
     return list(_default_tools_cache)
 
 
 @dataclass(frozen=True)
 class Agent:
-    """Agent attribute model — 11 attributes per refactor_guide:62-73 + todo 18.
+    """Agent attribute model — the 11-attribute agent set.
 
     Attributes:
         id:              Read-only, created-init, unique. Validated non-empty.
@@ -130,7 +130,7 @@ class Agent:
     def __post_init__(self) -> None:
         """Validate that ``id`` is non-empty (read-only invariant).
 
-        Per refactor_guide:63: "id | 数据结构控制与存储，只读，创建时初始化，唯一".
+        ``id`` 由数据结构控制与存储：只读，创建时初始化，唯一。
         The id must never be empty (after whitespace stripping) — this is the
         only runtime validation; uniqueness is enforced by the registry /
         storage layer, not here.
@@ -142,8 +142,8 @@ class Agent:
     def to_dict(self) -> dict[str, Any]:
         """Serialise this agent's full attribute set to a plain dict.
 
-        The inverse of :meth:`from_dict`. Includes ``id`` (the identity,
-        per refactor_guide:63) so a serialised agent is self-contained and
+        The inverse of :meth:`from_dict`. Includes ``id`` (the identity)
+        so a serialised agent is self-contained and
         shareable: a recipient can reconstruct the exact agent from the dict
         alone (no ``agent_name`` mapping needed).
         """
@@ -171,8 +171,8 @@ class Agent:
         (``_load_agent_yaml``), the project override loader
         (``build_project_registry``),
         and workflow-tree import (embedded agent definitions). It enforces
-        the rigorous id invariant (per refactor_guide:63 ``id`` is the
-        control identifier, not a display label): an explicit, well-formed
+        the rigorous id invariant (``id`` is the control identifier, not
+        a display label): an explicit, well-formed
         ``id`` is required — there is no file-stem fallback, because
         relying on a file name as identity makes shared agents ambiguous.
 

@@ -1,4 +1,4 @@
-"""/api/resources read/edit/version-history per type (refactor_guide:386-400).
+"""/api/resources read/edit/version-history per type.
 
 Endpoints
 ---------
@@ -7,8 +7,8 @@ Endpoints
 * ``GET /api/resources/{project_id}/{type}``        — read a type's full
   content.
 * ``PUT /api/resources/{project_id}/{type}``        — edit (write) a
-  resource. **Rejected for the ``variables`` type** with ``403`` per
-  refactor_guide:210-211 (variables are front-end display only, not
+  resource. **Rejected for the ``variables`` type** with ``403``
+  (variables are front-end display only, not
   editor-editable via the API).
 * ``GET /api/resources/{project_id}/{type}/history`` — git commit history
   filtered to ``resources/<type>/`` (via
@@ -41,11 +41,11 @@ from app.data.versioning import VersionManager
 
 router = APIRouter(prefix="/api/resources", tags=["resources"])
 
-# Per refactor_guide:210-211 variables are front-end display only — the
+# Variables are front-end display only — the
 # API editor refuses to PUT them. GET still works.
 _READ_ONLY_TYPES: frozenset[str] = frozenset({"variables"})
 
-# Friendly Chinese titles for the 8 types (refactor_guide:167).
+# Friendly Chinese titles for the 8 types.
 _TYPE_TITLES: dict[str, str] = {
     "outline": "大纲",
     "short_goal": "细纲",
@@ -101,7 +101,7 @@ def list_resources(project_id: ProjectIdPath, root: RootDep) -> ResourceListResp
 
     The returned list ALWAYS has one entry per registered type, even when
     the project has not written any content yet — the front-end renders
-    an editor tab for every type (refactor_guide:388-400).
+    an editor tab for every type.
     """
     path = resolve_project(root, project_id)
     store = ResourceStore(path)
@@ -170,9 +170,9 @@ def put_resource(
     """Edit (write) a resource's content.
 
     Rejected with ``403`` for the ``variables`` type (front-end display
-    only — refactor_guide:210-211). The write is **not** committed by
+    only). The write is **not** committed by
     this endpoint; a workflow Round or explicit project-repo commit
-    creates the Turn commit (per refactor_guide:300 one commit per
+    creates the Turn commit (one commit per
     Round, not per API call).
     """
     _validate_type(type)
@@ -181,7 +181,7 @@ def put_resource(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
                 f"Resource type {type!r} is read-only via the API editor "
-                "(variables are front-end display only, per guide:210-211)."
+                "(variables are front-end display only)."
             ),
         )
     path = resolve_project(root, project_id)
@@ -212,7 +212,7 @@ def resource_history(
 ) -> ResourceHistoryResponse:
     """Return the git commit history filtered to ``resources/<type>/``.
 
-    Per refactor_guide:388-400 each data type exposes its own version
+    Each data type exposes its own version
     history. We use ``git log -- resources/<type>`` so only commits
     whose diff actually touches that subtree are listed (newest first).
     """

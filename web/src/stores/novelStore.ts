@@ -1,9 +1,9 @@
 /**
- * Zustand store for the novel viewer (todo 31, guide:406-408).
+ * Zustand store for the novel viewer.
  *
  * Holds the chapter list + the currently-open chapter's content. The
  * backend /api/novel endpoints are read-only; editing/zoom is a pure
- * front-end concern (guide:408) — the store keeps a local draft for
+ * front-end concern — the store keeps a local draft for
  * the edit mode and the view renders it.
  */
 

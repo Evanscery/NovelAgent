@@ -14,14 +14,14 @@ This is the **compat layer** port of the legacy ``card_front.py`` (archived at
   front-end-friendly card view from a ``card_ir`` dict (all card-derived
   strings are HTML-escaped).
 
-Per ``docs/refactor_guide.md:27-29`` and decision D5, all SillyTavern naming
+Per decision D5, all SillyTavern naming
 converges to ``app/compat/tavern_card/``. This module is one of the two
  sanctioned places where the SillyTavern regex-front model is implemented
 (the other is ``card_migration.py``). The front-end RP view
 (``web/src/views/RpView.tsx``) consumes the rendered HTML via an API route
 that delegates here; it never references SillyTavern directly.
 
-Per ``docs/refactor_guide.md:402-404``: the dynamic front (RP mode) renders
+The dynamic front (RP mode) renders
 card-bound front scripts (regex -> html+css+js) and manages variables to
 update the front dynamically.
 """

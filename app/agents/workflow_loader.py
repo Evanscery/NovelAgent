@@ -2,8 +2,6 @@
 
 Loads a :class:`~app.agents.tree_model.WorkflowTree` from a yaml or json
 file, accepting either tree-format or canvas-format input.
-
-Extracted from the original monolithic ``workflow.py``.
 """
 
 from __future__ import annotations

@@ -1,5 +1,5 @@
 /**
- * Zustand store for the workflow canvas (todo 27) + run panel (todo 32).
+ * Zustand store for the workflow canvas + run panel.
  *
  * Holds the user-editable CanvasGraph (nodes/wires) for the active project
  * and exposes actions to load it from the backend, mutate it, export/import
@@ -7,8 +7,8 @@
  * user-facing shape (CanvasGraph in app/agents/workflow.py); the backend
  * parses it into a WorkflowTree at run time.
  *
- * Per refactor_guide:356-360 the canvas is comfy-UI-like, nodes/wires/
- * JSON-export. Per guide:378-384 the canvas saves CONFIG (agent attribute
+ * The canvas is comfy-UI-like, nodes/wires/
+ * JSON-export. The canvas saves CONFIG (agent attribute
  * sets), NOT prompts — the parser generates prompts at runtime.
  */
 

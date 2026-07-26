@@ -1,7 +1,7 @@
 /**
  * NavRail — vertical rail with 8 tabs (icon + label).
  * Collapsible (icon-only when collapsed), localStorage memory.
- * Per refactor_guide:348 标签页+多级导航.
+ * 标签页+多级导航.
  */
 
 import { type ReactNode } from "react";

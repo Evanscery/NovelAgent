@@ -4,7 +4,7 @@
 
 ## 为什么存在这个兼容层
 
-NovelAgent 的灵感来自 SillyTavern 的角色卡生态，但运行时与 SillyTavern **完全解耦**——不依赖 SillyTavern 任何功能。为了能复用社区已有的角色卡与预设，项目在 `app/compat/tavern_card/` 提供一个**单向导入**兼容层：把外部角色卡转换为 NovelAgent 自己的 8 资源模型，把外部预设里的文风/越狱片段转换为 Agent 技能。
+NovelAgent 的灵感来自 SillyTavern 的角色卡生态，但运行时与 SillyTavern **完全解耦**——不依赖 SillyTavern 任何功能。为了能复用社区已有的角色卡与预设，项目在 `app/compat/tavern_card/` 提供一个**单向导入**兼容层：把外部角色卡转换为 NovelAgent 自己的 8 资源模型，把外部预设里的文风/越狱片段提取为可注入 prompt 的纯数据片段。
 
 ## 模块
 
@@ -12,7 +12,7 @@ NovelAgent 的灵感来自 SillyTavern 的角色卡生态，但运行时与 Sill
 | --- | --- |
 | `app/compat/tavern_card/card_front.py` | 角色卡绑定的正则前端脚本（findRegex → HTML 模板，`$1..$N` 占位符）→ 安全 HTML 渲染。用于 RP 模式的动态前端。 |
 | `app/compat/tavern_card/card_migration.py` | 角色卡 → 8 资源项目迁移：`load_card_payload` → `infer_card_ir` → `infer_runtime_plan` → `materialize_project_from_card`。 |
-| `app/compat/tavern_card/preset_extract.py` | 预设（文风 / 越狱 / system 段）→ Agent 技能。解析预设格式，再委托 `app/agents/skills.py` 的 `extract_skills_from_preset` 包成 `Skill` 对象。 |
+| `app/compat/tavern_card/preset_extract.py` | 预设（文风 / 越狱 / system 段）→ `PromptFragment` 纯数据片段。解析预设格式，产出 `(kind, text)` 片段供调用方注入 agent 的 head/tail；不依赖 agent 层。 |
 
 ## 导入流程
 
@@ -51,17 +51,17 @@ NovelAgent 的灵感来自 SillyTavern 的角色卡生态，但运行时与 Sill
 - 可选 `{"display_name": "...", "mode": "novel|rp"}` 覆盖默认值（默认取卡片名 / runtime plan 推荐）。
 - 成功返回 `201`，含 `project_id` / `resources_created` / `front_scripts_written`。
 
-## 预设技能提取
+## 预设片段提取
 
-`extract_preset_skills(preset)` 接受 markdown 字符串、JSON/YAML dict、或区段列表，规范化为 markdown `##` 段落后，委托 `app/agents/skills.py` 的 `extract_skills_from_preset` 产出 `Skill` 对象：
+`extract_preset_fragments(preset)`（`app/compat/tavern_card/preset_extract.py`）接受 markdown 字符串、JSON/YAML dict、或区段列表，经 `normalize_preset_to_markdown` 规范化为 markdown `##` 段落后，产出 `PromptFragment` 纯数据对象（`kind` + `text`）：
 
-- `## 文风` / `## style` / `## 写作风格` → `style_<hash8>`
-- `## jailbreak` / `## 越狱` → `jailbreak_<hash8>`
+- `## 文风` / `## style` / `## 写作风格` → `kind="style"`
+- `## jailbreak` / `## 越狱` → `kind="jailbreak"`
 
-技能名按内容哈希命名，同一预设片段在多次运行中得到稳定标识符。
+片段是纯 `(kind, text)` 数据，不依赖 agent 层；如何注入某个 agent 的 `head` / `tail` 由调用方决定。
 
 ## 边界
 
-- 兼容层只做**导入**（卡 → 项目 / 预设 → 技能），不承担运行时角色卡渲染之外的任何 SillyTavern 行为。
-- 项目的其他代码、文档、UI 一律使用自己的术语（角色卡兼容 / 卡导入 / 预设技能），不出现 SillyTavern 字样。
+- 兼容层只做**导入**（卡 → 项目 / 预设 → prompt 片段），不承担运行时角色卡渲染之外的任何 SillyTavern 行为。
+- 项目的其他代码、文档、UI 一律使用自己的术语（角色卡兼容 / 卡导入 / 预设片段），不出现 SillyTavern 字样。
 - `docs/refactor_guide.md` 是权威源，其中提及 SillyTavern 是历史背景说明，不在此限。

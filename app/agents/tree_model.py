@@ -1,6 +1,4 @@
-"""Workflow tree model (parser output): NodeDefinition, TreeNode, WorkflowTree.
-Extracted from the original monolithic ``workflow.py``.
-"""
+"""Workflow tree model (parser output): NodeDefinition, TreeNode, WorkflowTree."""
 
 from __future__ import annotations
 
@@ -41,8 +39,7 @@ class NodeDefinition:
         kind:    Node-kind discriminator -- ``"agent"`` today, with
                  ``"tool"`` / ``"mcp"`` as planned kinds.
         id:      Identifier within the *kind* namespace (for agents this
-                 is ``Agent.id``, the control identifier per
-                 refactor_guide:63).
+                 is ``Agent.id``, the control identifier).
         payload: The full attribute set of the defined object (for
                  agents, :meth:`~app.agents.agent.Agent.to_dict` output).
     """
