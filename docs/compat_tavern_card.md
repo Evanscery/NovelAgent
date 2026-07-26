@@ -11,7 +11,11 @@ NovelAgent 的灵感来自 SillyTavern 的角色卡生态，但运行时与 Sill
 | 模块 | 职责 |
 | --- | --- |
 | `app/compat/tavern_card/card_front.py` | 角色卡绑定的正则前端脚本（findRegex → HTML 模板，`$1..$N` 占位符）→ 安全 HTML 渲染。用于 RP 模式的动态前端。 |
-| `app/compat/tavern_card/card_migration.py` | 角色卡 → 8 资源项目迁移：`load_card_payload` → `infer_card_ir` → `infer_runtime_plan` → `materialize_project_from_card`。 |
+| `app/compat/tavern_card/card_migration.py` | 迁移流程 facade：`load_card_payload` → `infer_card_ir` → `infer_runtime_plan` → `materialize_project_from_card`（实现拆分在下面四个模块）。 |
+| `app/compat/tavern_card/card_recognition.py` | 卡片格式识别与载入（v2/v3/PNG 内嵌 JSON）。 |
+| `app/compat/tavern_card/ir_definition.py` | 中间表示：`CardIR` / `RuntimePlan` 数据结构。 |
+| `app/compat/tavern_card/content_builders.py` | 卡片字段 → 各资源内容文本的构建器。 |
+| `app/compat/tavern_card/materializer.py` | 落盘：8 资源文件 + `front/` 脚本 + `card_ir.json` / `runtime_plan.json`。 |
 | `app/compat/tavern_card/preset_extract.py` | 预设（文风 / 越狱 / system 段）→ `PromptFragment` 纯数据片段。解析预设格式，产出 `(kind, text)` 片段供调用方注入 agent 的 head/tail；不依赖 agent 层。 |
 
 ## 导入流程

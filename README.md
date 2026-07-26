@@ -16,34 +16,50 @@ NovelAgent 用一个**导演 Agent（director）**动态调度其他智能体（
 
 ```text
 用户界面 (web/)            React + TS + Vite：画布工作流配置器 / director 聊天 /
-  ├─ views/                分类型数据编辑器(8类) + 版本历史 / 小说阅读器 / RP 动态前端 / 配置页 / 运行面板
+  ├─ views/                分类型数据编辑器(8类) + 版本历史 / 小说阅读器 / RP 视图 / 配置页 / 运行面板
   └─ stores/               Zustand 状态管理
 
-执行基础设施 (app/runtime/) 发送 agent 请求 / 并发执行 / 等待 Future / 超时 / 重试 /
-  ├─ runtime.py            提交 / 回滚 / 原子事务（与具体 agent 无关）
-  ├─ transaction.py        AtomicTurn：一轮的所有维护操作要么全提交要么全取消
-  ├─ permission.py         解析 agent.permission → 工具作用域 → 越权 reject
-  ├─ tool_dispatcher.py    解析 agent 工具调用 → 路由到 read/search/write
-  └─ budget.py             token / tool / iteration 预算 + Finalize 信号
+用户层后端 (app/api/ + app/canvas/)
+  ├─ api/routes/           HTTP 接口：projects / config / resources / workflow / chat / novel / import
+  ├─ api/schemas.py        Pydantic wire 模型
+  └─ canvas/canvas_model.py 用户画布数据模型（节点/接线/DAG 校验）
 
-智能体 (app/agents/)       Agent 属性模型(id/name/task/input/output/permission/
-  ├─ agent.py              model/skills/tools/head/tail) + parser(配置静态→prompt动态)
-  ├─ parser.py             director 必备，工具 call_agent/await，按 DAG 优先级调度
-  ├─ director.py           可绕过节点 / 可递归召回 / Finalize
-  ├─ workflow.py           WorkflowDAG(节点/接线/优先级，接线只定优先级+保证无环)
-  ├─ tools.py              统一工具 read(resource)/search(resource)/write(resource)
-  ├─ skills.py             技能 registry（内置 dice_roll + 预设技能提取；MCP 预留）
-  ├─ builtin/*.yaml        5 个内置 agent 属性集（recaller/scout/writer/critic/maintainer）
-  └─ default_workflow.yaml 默认 DAG
+执行基础设施 (app/runtime/) 发送 agent 请求 / 超时 / 重试 / 预算 / 权限执行 / 工具分发
+  ├─ session.py            create_round_session 工厂：组装 Runtime/Budget/Executor（API 唯一入口）
+  ├─ round_executor.py     director LLM tool-call 循环：call_agent / await / finalize / 工具分发
+  ├─ runtime.py            请求发送：超时 / 重试 / 退避
+  ├─ prompt_builder.py     RequestSpec/Message：结构化请求组装（system + history + tools）
+  ├─ tool_catalog.py       工具目录（schema + 实现，MCP/插件注册缝）
+  ├─ tool_dispatcher.py    解析工具调用 → 路由到 read/write/grep 族
+  ├─ permission.py         agent.permission → ScopedTools，越权抛 PermissionDenied
+  ├─ budget.py             token / tool / iteration 预算 + FinalizeSignal
+  ├─ transaction.py        AtomicTurn 快照/恢复（注：尚未接入生产路径）
+  ├─ runners/              AgentRunner 抽象 + DirectRunner(OpenAI 兼容) + MockRunner
+  ├─ providers/            RequestEncoder 协议 + OpenAIChatEncoder
+  └─ mcp/                  MCP 工具加载缝
 
-数据 (app/data/)           只做存储/索引/访问/权限校验——不主动召回、不主动维护、
-  ├─ resource.py           不关心内容。所有"理解数据"交给 Agent。
-  ├─ resource_types.py     8 类资源: Outline/ShortGoal/State/Variables/Worldbook/
-  ├─ store.py              Facts/CharacterMemory/Notes，每类有独立 properties.md
-  ├─ versioning.py         git 版本图: Turn=commit / Branch=branch / Projection=工作区
-  └─ project_repo.py       每项目独立 git 仓库，主仓 .gitignore 忽略 workspaces/*/
+智能体 (app/agents/)       Agent 属性模型 + parser（配置静态 → prompt 动态）
+  ├─ agent.py              id/name/task/input/output/permission/model/tools/head/tail/allow_recursive
+  ├─ parser.py             属性 → 系统提示词（权限段 / 工作流执行顺序段）
+  ├─ permission.py         Permission 定义（resource_type 白名单）
+  ├─ tools.py              BUILTIN_TOOL_SCHEMAS：read / write / list_files / glob_files /
+  │                        grep_lines / read_lines + call_agent/await/finalize + dice_roll
+  ├─ registry.py           id 主键 + name 二级索引的 Agent 注册表
+  ├─ tree_model.py         WorkflowTree（画布编译产物，便携导出内嵌 agent 定义）
+  ├─ canvas_parser.py      画布 → 树编译
+  ├─ flow_sequence.py      为 director 生成执行顺序上下文
+  ├─ workflow_loader.py    workflow.yaml 加载
+  └─ builtin/*.yaml        6 个内置 agent（director/recaller/scout/writer/critic/maintainer）
 
-兼容层 (app/compat/)       角色卡兼容单向导入（正则前端 / 卡→8资源 / 预设→技能）
+数据 (app/data/)           只做存储/访问——不召回、不维护、不理解内容
+  ├─ resource.py           资源抽象
+  ├─ resource_types.py     8 类资源 + properties.md 默认策略（仅存储元数据，不执行）
+  ├─ store.py              read/write/create/list + grep/glob/read_lines
+  ├─ versioning.py         git 版本: Turn=commit / 回滚=新 branch（branch/delete 双模式）
+  ├─ project_repo.py       每项目独立 git 仓库，主仓 .gitignore 忽略 workspaces/*/
+  └─ manifest.py / properties.py / message_store.py
+
+兼容层 (app/compat/)       角色卡兼容单向导入（正则前端 / 卡→8资源 / 预设→prompt 片段）
   └─ tavern_card/          详见 docs/compat_tavern_card.md
 ```
 
@@ -99,7 +115,7 @@ python -m app.main serve          # 拉起 FastAPI 后端 + 前端 Web
 
 ### 4. RP 互动模式
 
-RP 是可选玩法：切换项目 mode 为 `rp`，在 RP 视图输入"玩家行动"，系统按事件驱动推进一回合，并维护**后台真实状态**与**玩家可见状态**的信息差。行动里可写骰子表达式（如 `1d20`），若 GM agent 声明了 `skills:[dice_roll]`，结果作为可审计的技能调用挂在响应里。
+RP 是可选玩法：切换项目 mode 为 `rp`，在 RP 视图输入"玩家行动"，系统按事件驱动推进一回合，并维护**后台真实状态**与**玩家可见状态**的信息差。行动里可写骰子表达式（如 `1d20`），若 GM agent 声明了 `tools:[dice_roll]`，结果作为可审计的工具调用挂在响应里。
 
 ---
 
@@ -109,10 +125,11 @@ RP 是可选玩法：切换项目 mode 为 `rp`，在 RP 视图输入"玩家行�
 
 - `config/models.yaml` — 模型 tier（premium/standard/cheap）+ 供应商类型（openai/openai-response/anthropic）+ per-agent 模型
 - `config/runtime.yaml` — 超时 / 重试 / 退避 / 降级 / 预算 / Finalize 策略
+- `config/agents.yaml` — 全局 agent 默认值（default_tools，启动时注入）
 - `config/server.yaml` — FastAPI host / port / CORS / IP 白名单
 - `workspaces/<id>/config.yaml` — 项目显示名 + mode + per-project 覆写
 
-每 agent 独立配置 Name / Task / Model / Skills / Tools / Permission / Input / Output（Workflow 保存**配置**而非 Prompt，parser 在运行时动态生成 prompt）。
+每 agent 独立配置 Name / Task / Model / Tools / Permission / Input / Output（Workflow 保存**配置**而非 Prompt，parser 在运行时动态生成 prompt）。
 
 ---
 
@@ -165,6 +182,10 @@ ruff check app/ && mypy app/     # lint + 类型检查
 ## 文档索引
 
 - [`docs/refactor_guide.md`](docs/refactor_guide.md) — **权威蓝图**（四层架构 / 8 资源 / director / 运行时分离 / 统一工具 / 权限 / git 版本 / 无 DB / React / FastAPI）
+- [`docs/audit_report.md`](docs/audit_report.md) — 2026-07-27 全面审计（架构符合性 / 断链清单 / 质量问题编号 F/Q/W）
+- [`docs/stage_report.md`](docs/stage_report.md) — 阶段报告（已走完的阶段 / 当前健康度 / 真实差距）
+- [`docs/optimization_plan.md`](docs/optimization_plan.md) — 优化计划（分波次，含验收标准）
+- [`docs/system_walkthrough.md`](docs/system_walkthrough.md) — 人工审计指南（按层级/优先级的代码阅读顺序）
 - [`docs/compat_tavern_card.md`](docs/compat_tavern_card.md) — 角色卡兼容层说明（唯一提及外部角色卡生态来源的地方）
 - `docs/archive/` — 旧版文档归档（仅供参考，非当前架构）
 

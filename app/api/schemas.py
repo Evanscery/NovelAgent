@@ -108,7 +108,7 @@ class RunWorkflowRequest(BaseModel):
 
 
 class RoundResultSummary(BaseModel):
-    """Summary of a completed :class:`~app.agents.director.RoundResult`."""
+    """Summary of a completed :class:`~app.runtime.round_executor.RoundResult`."""
 
     completed_agents: list[str] = Field(default_factory=list)
     finalize_reason: str = ""

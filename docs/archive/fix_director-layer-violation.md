@@ -2,7 +2,7 @@
 
 > 日期: 2026-07-10
 > 严重级别: **P0 Critical — 架构层级越界**
-> 事故状态: **已识别，待修复**
+> 事故状态: **已修复（2026-07-27 归档）** — `app/agents/director.py` 已删除，director 现为 `app/agents/builtin/director.yaml` 普通属性集；LLM tool-call 循环由 `app/runtime/round_executor.py` 驱动，call_agent/await/finalize 真实分发。本文档仅作历史记录。
 
 ---
 
