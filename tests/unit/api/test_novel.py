@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 import yaml
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.server import create_app
-
 
 # ── fixtures ─────────────────────────────────────────────────────────────
 
@@ -173,17 +173,17 @@ class TestResolveChapterPathGuard:
     def test_rejects_dotdot(self, tmp_path: Path) -> None:
         from app.api.routes.novel import _resolve_chapter_path
 
-        with pytest.raises(Exception):  # noqa: PT011 — HTTPException subclass
+        with pytest.raises(HTTPException):
             _resolve_chapter_path(tmp_path, "..")
 
     def test_rejects_separator(self, tmp_path: Path) -> None:
         from app.api.routes.novel import _resolve_chapter_path
 
-        with pytest.raises(Exception):  # noqa: PT011
+        with pytest.raises(HTTPException):
             _resolve_chapter_path(tmp_path, "sub/chapter_01.txt")
 
     def test_rejects_null_byte(self, tmp_path: Path) -> None:
         from app.api.routes.novel import _resolve_chapter_path
 
-        with pytest.raises(Exception):  # noqa: PT011
+        with pytest.raises(HTTPException):
             _resolve_chapter_path(tmp_path, "chapter\x00.txt")

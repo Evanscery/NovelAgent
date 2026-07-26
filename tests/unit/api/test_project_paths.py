@@ -13,7 +13,6 @@ from app.project_paths import (
     resolve_project_path,
 )
 
-
 # ── generate_project_id ──────────────────────────────────────────────────
 
 

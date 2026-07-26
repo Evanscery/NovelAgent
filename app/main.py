@@ -71,6 +71,7 @@ def _serve(args: argparse.Namespace) -> int:
     # Lazy import so `--help` and unrelated imports stay fast.
     import uvicorn
 
+    from app.agents.agent import set_default_tools
     from app.api.server import create_app
     from app.config_loader import ConfigLoader
 
@@ -78,6 +79,12 @@ def _serve(args: argparse.Namespace) -> int:
     cfg = ConfigLoader(root).load_global()
     host = args.host or cfg.server.host
     port = args.port if args.port is not None else cfg.server.port
+
+    # Populate the global default-tools cache from config/agents.yaml so
+    # Agent's `tools` field default_factory (and registry fallbacks) inherit
+    # the user-editable value. Edit config/agents.yaml + restart (or uvicorn
+    # --reload) to pick up changes — no in-process provider callback by design.
+    set_default_tools(list(cfg.agents.default_tools))
 
     app = create_app(root)
     uvicorn.run(app, host=host, port=port, reload=args.reload)

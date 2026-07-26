@@ -4,7 +4,8 @@ Per refactor_guide §项目目录与配置控制 (lines 31-47) and the four-tier
 priority described in the work plan (global < profile < project < run-override):
 
 * **global**   — ``config/models.yaml``, ``config/runtime.yaml``,
-  ``config/server.yaml`` at the repo root. Shared defaults for every project.
+  ``config/server.yaml``, ``config/agents.yaml`` at the repo root. Shared
+  defaults for every project.
 * **profile**  — optional named profile layer (reserved; not yet exposed in
   the UI — returns the global config unchanged when no profile is given).
 * **project**  — ``workspaces/<id>/config.yaml``; carries ``display_name``,
@@ -53,6 +54,19 @@ class RuntimeConfig(BaseModel):
     workflow: dict[str, Any] = Field(default_factory=dict)
 
 
+class AgentsConfig(BaseModel):
+    """config/agents.yaml — global agent defaults (default tools, etc.).
+
+    ``default_tools`` is the inheritance fallback used when an
+    :class:`app.agents.agent.Agent` is constructed without an explicit
+    ``tools`` list AND when a builtin / per-project agent yaml omits the
+    ``tools:`` field. Empty by default so ``config/agents.yaml`` is the
+    single source of truth (shipped with an initial 6-tool list).
+    """
+
+    default_tools: list[str] = Field(default_factory=list)
+
+
 class ServerConfig(BaseModel):
     """config/server.yaml — FastAPI host/port/CORS/whitelist."""
 
@@ -64,7 +78,7 @@ class ServerConfig(BaseModel):
 
 
 class GlobalConfig(BaseModel):
-    """Merged global configuration (models + runtime + server).
+    """Merged global configuration (models + runtime + agents + server).
 
     This is the **global** layer only — no project-specific fields. Use
     :func:`load_project` to obtain a :class:`ProjectConfig` that merges a
@@ -73,6 +87,7 @@ class GlobalConfig(BaseModel):
 
     models: ModelsConfig = Field(default_factory=ModelsConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
+    agents: AgentsConfig = Field(default_factory=AgentsConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
 
 
@@ -88,6 +103,7 @@ class ProjectConfig(BaseModel):
     mode: str = "novel"
     models: ModelsConfig = Field(default_factory=ModelsConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
+    agents: AgentsConfig = Field(default_factory=AgentsConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
 
 
@@ -124,11 +140,13 @@ class ConfigLoader:
         models_raw = self._load_yaml(self._root / "config" / "models.yaml") or {}
         runtime_raw = self._load_yaml(self._root / "config" / "runtime.yaml") or {}
         server_raw = self._load_yaml(self._root / "config" / "server.yaml") or {}
+        agents_raw = self._load_yaml(self._root / "config" / "agents.yaml") or {}
 
         merged: dict[str, Any] = {
             "models": models_raw.get("models", models_raw) if isinstance(models_raw, dict) else {},
             "runtime": runtime_raw.get("runtime", runtime_raw) if isinstance(runtime_raw, dict) else {},
             "server": server_raw.get("server", server_raw) if isinstance(server_raw, dict) else {},
+            "agents": agents_raw.get("agents", agents_raw) if isinstance(agents_raw, dict) else {},
         }
         if run_override:
             merged = _deep_merge(merged, run_override)
@@ -205,6 +223,7 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 
 __all__ = [
+    "AgentsConfig",
     "ConfigLoader",
     "GlobalConfig",
     "ModelsConfig",

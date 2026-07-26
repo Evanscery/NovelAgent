@@ -336,7 +336,13 @@ def test_real_llm_director_chat_round(backend_url: str) -> None:
         # 2. Send ONE chat message asking the director to write a chapter.
         chat_req = urllib.request.Request(
             f"{backend_url}/api/chat/{pid}",
-            data=json.dumps({"content": "Write the opening chapter of a fantasy novel about a young hero named Kael who discovers an ancient map in their grandmother's attic. Write at least one full paragraph of narrative prose."}).encode("utf-8"),
+            data=json.dumps({
+                "content": (
+                    "Write the opening chapter of a fantasy novel about a young hero "
+                    "named Kael who discovers an ancient map in their grandmother's "
+                    "attic. Write at least one full paragraph of narrative prose."
+                )
+            }).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )
@@ -421,7 +427,12 @@ def test_real_llm_rp_action_narration(backend_url: str) -> None:
         # contract per guide:410-413).
         chat_req = urllib.request.Request(
             f"{backend_url}/api/chat/{pid}",
-            data=json.dumps({"content": "I draw my sword and face the dragon, heart pounding. Narrate what happens next."}).encode("utf-8"),
+            data=json.dumps({
+                "content": (
+                    "I draw my sword and face the dragon, heart pounding. "
+                    "Narrate what happens next."
+                )
+            }).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )

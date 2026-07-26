@@ -21,7 +21,6 @@ from fastapi.testclient import TestClient
 from app.api.server import create_app
 from app.data.resource_types import RESOURCE_TYPE_REGISTRY
 
-
 # ── fixtures ─────────────────────────────────────────────────────────────
 
 

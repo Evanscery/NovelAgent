@@ -13,9 +13,9 @@ from pathlib import Path
 
 import yaml
 
-from app.canvas.canvas_model import CanvasGraph, CanvasNode, CanvasWire
 from app.agents.canvas_parser import parse_canvas_to_tree
 from app.agents.tree_model import WorkflowTree
+from app.canvas.canvas_model import CanvasGraph, CanvasNode, CanvasWire
 
 
 def load_workflow(path: str | Path) -> WorkflowTree:

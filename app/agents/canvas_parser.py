@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from collections import deque
 
-from app.canvas.canvas_model import CanvasGraph, CanvasNode, CanvasWire
 from app.agents.tree_model import TreeNode, WorkflowTree
+from app.canvas.canvas_model import CanvasGraph, CanvasNode, CanvasWire
 
 
 def _build_successors(canvas: CanvasGraph, include_feedback: bool = False) -> dict[str, list[str]]:

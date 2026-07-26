@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,6 @@ from app.data.properties import (
     serialize_properties_md,
 )
 from app.data.resource import Resource
-
 
 # ── tests: properties.md round-trip ──────────────────────────────────
 
@@ -56,7 +56,13 @@ class TestPropertiesRoundTrip:
 
     def test_ignore_pre_heading_content(self) -> None:
         """Content before the first ## heading is ignored."""
-        text = "这是前置说明，不是有效 section。\n\n## 存储方式\n按文件存储\n\n## 召回策略\n按需\n\n## 维护策略\n每轮\n\n## 版本策略\n覆盖\n"
+        text = (
+            "这是前置说明，不是有效 section。\n\n"
+            "## 存储方式\n按文件存储\n\n"
+            "## 召回策略\n按需\n\n"
+            "## 维护策略\n每轮\n\n"
+            "## 版本策略\n覆盖\n"
+        )
         parsed = parse_properties_md(text)
         assert parsed.存储方式 == "按文件存储"
         assert parsed.召回策略 == "按需"
@@ -219,5 +225,5 @@ class TestResourceBase:
             properties=ResourceProperties(),
             manifest=ResourceManifest(type="stub", properties_ref="props.md"),
         )
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             r.id = "changed"  # type: ignore[misc]

@@ -12,11 +12,11 @@ All public symbols are re-exported here so existing imports
 """
 from __future__ import annotations
 
-from app.canvas.canvas_model import CanvasGraph, CanvasNode, CanvasWire
 from app.agents.canvas_parser import parse_canvas_to_tree
 from app.agents.flow_sequence import generate_flow_sequence
 from app.agents.tree_model import TreeNode, WorkflowTree
 from app.agents.workflow_loader import load_workflow
+from app.canvas.canvas_model import CanvasGraph, CanvasNode, CanvasWire
 
 __all__ = [
     "CanvasGraph",

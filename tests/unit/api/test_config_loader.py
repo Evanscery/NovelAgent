@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 import yaml
 
-from app.config_loader import ConfigLoader, GlobalConfig, ProjectConfig
-
+from app.config_loader import AgentsConfig, ConfigLoader, GlobalConfig, ProjectConfig
 
 # ── fixtures ─────────────────────────────────────────────────────────────
 
@@ -25,6 +23,7 @@ def _write_global_configs(
     *,
     models: dict | None = None,
     runtime: dict | None = None,
+    agents: dict[str, object] | None = None,
     server: dict | None = None,
 ) -> None:
     if models is not None:
@@ -34,6 +33,10 @@ def _write_global_configs(
     if runtime is not None:
         (root / "config" / "runtime.yaml").write_text(
             yaml.safe_dump(runtime, allow_unicode=True), encoding="utf-8"
+        )
+    if agents is not None:
+        (root / "config" / "agents.yaml").write_text(
+            yaml.safe_dump(agents, allow_unicode=True), encoding="utf-8"
         )
     if server is not None:
         (root / "config" / "server.yaml").write_text(
@@ -54,12 +57,13 @@ def _make_project(root: Path, project_id: str, config: dict) -> Path:
 
 
 class TestLoadGlobal:
-    def test_merges_models_runtime_server(self, tmp_path: Path) -> None:
+    def test_merges_models_runtime_agents_server(self, tmp_path: Path) -> None:
         root = _make_repo(tmp_path)
         _write_global_configs(
             root,
             models={"tiers": {"premium": {"provider": "openai", "model_env": "X", "rpm": 5}}},
             runtime={"runner": {"timeout_seconds": 42}},
+            agents={"default_tools": ["read", "write"]},
             server={"server": {"host": "0.0.0.0", "port": 9999, "allow_origins": ["*"]}},
         )
         cfg = ConfigLoader(root).load_global()
@@ -70,14 +74,27 @@ class TestLoadGlobal:
         assert cfg.server.host == "0.0.0.0"
         assert cfg.server.port == 9999
         assert cfg.server.allow_origins == ["*"]
+        assert isinstance(cfg.agents, AgentsConfig)
+        assert cfg.agents.default_tools == ["read", "write"]
 
     def test_missing_files_yield_defaults(self, tmp_path: Path) -> None:
         root = _make_repo(tmp_path)
         # No yaml files written.
         cfg = ConfigLoader(root).load_global()
         assert cfg.models.tiers == {}
+        assert cfg.agents.default_tools == []  # AgentsConfig default is empty list
         assert cfg.server.host == "127.0.0.1"
         assert cfg.server.port == 8000
+
+    def test_agents_wrapper_stripped(self, tmp_path: Path) -> None:
+        """agents.yaml may be written either as ``agents:`` wrapping or as the
+        bare mapping — the loader handles both like models.yaml / runtime.yaml."""
+        root = _make_repo(tmp_path)
+        _write_global_configs(
+            root, agents={"agents": {"default_tools": ["alpha"]}}
+        )
+        cfg = ConfigLoader(root).load_global()
+        assert cfg.agents.default_tools == ["alpha"]
 
     def test_run_override_wins(self, tmp_path: Path) -> None:
         root = _make_repo(tmp_path)
@@ -152,3 +169,24 @@ class TestLoadProject:
         )
         assert cfg.display_name == "Overridden"
         assert cfg.mode == "novel"
+
+    def test_project_overrides_agents_default_tools(self, tmp_path: Path) -> None:
+        """Per-project ``agents.default_tools`` in config.yaml overrides the
+        global ``config/agents.yaml`` value via deep-merge — list replaced
+        wholesale (per :func:`app.config_loader._deep_merge` semantics)."""
+        root = _make_repo(tmp_path)
+        _write_global_configs(
+            root, agents={"default_tools": ["read", "write"]}
+        )
+        _make_project(
+            root,
+            "proj_dddd4444",
+            {
+                "display_name": "P",
+                "mode": "novel",
+                "agents": {"default_tools": ["read"]},
+            },
+        )
+        cfg = ConfigLoader(root).load_project("proj_dddd4444")
+        assert isinstance(cfg, ProjectConfig)
+        assert cfg.agents.default_tools == ["read"]  # project override wins
